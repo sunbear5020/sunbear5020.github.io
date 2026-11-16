@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>preview frame</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  iframe { display: block; border: 0; }
+</style>
+</head>
+<body>
+<script>
+  const p = new URLSearchParams(location.search);
+  const w = Number(p.get('w') || 1440);
+  const h = Number(p.get('h') || 900);
+  const f = document.createElement('iframe');
+  f.width = w; f.height = h;
+  f.style.width = w + 'px';
+  f.style.height = h + 'px';
+  f.src = 'index.html?v=' + (p.get('v') || '');
+  document.body.appendChild(f);
+</script>
+</body>
+</html>

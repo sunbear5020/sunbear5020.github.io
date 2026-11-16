@@ -193,7 +193,6 @@ const Scene = (() => {
     drawCoffee(time);
     drawShelf();
     drawPlants(time);
-    drawPlanMark();
 
     agents.slice().sort((a, b) => a.y - b.y).forEach(a => drawAgent(a, time));
 
