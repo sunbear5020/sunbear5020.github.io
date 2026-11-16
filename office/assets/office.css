@@ -137,17 +137,17 @@ body {
 .live-stats b { color: var(--charcoal); font-weight: 700; }
 
 .canvas-wrap {
-  position: relative; height: clamp(360px, 52vh, 590px);
+  position: relative; aspect-ratio: 1000 / 620; max-height: calc(100vh - 250px);
   background: var(--sand); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden;
 }
 #officeCanvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
 
 .canvas-legend {
-  position: absolute; left: 12px; bottom: 10px;
+  position: absolute; left: 12px; bottom: 6px;
   display: flex; gap: 11px; flex-wrap: wrap;
   font-size: 10px; color: var(--muted);
-  background: rgba(250,249,245,.82); padding: 4px 8px; border-radius: 2px;
+  background: rgba(250,249,245,.9); padding: 3px 8px; border-radius: 2px;
   pointer-events: none;
 }
 .canvas-legend span { display: inline-flex; align-items: center; gap: 4px; }
@@ -233,7 +233,7 @@ body {
 .log-item p { margin: 0; font-size: 11.9px; line-height: 1.52; color: #33322E; word-break: keep-all; }
 .log-item[data-live="1"] p { color: var(--terra-deep); font-style: italic; }
 .log-item.is-warn p { color: var(--terra-deep); }
-.log-empty { font-size: 11.8px; color: var(--muted-2); padding: 26px 4px; line-height: 1.7; }
+.log-empty { font-size: 11.8px; color: var(--muted-2); padding: 10px 4px 0; line-height: 1.7; }
 
 .pane-note { font-size: 11.4px; color: var(--muted); line-height: 1.55; margin: 12px 0; }
 .pane-note b { color: var(--charcoal); }
@@ -446,7 +446,7 @@ dialog::backdrop { background: rgba(20,20,19,.42); backdrop-filter: blur(2px); }
   .pane[data-pane="timeline"].is-on { display: flex; }
   .pane { max-height: none; }
   .log { max-height: 340px; }
-  .canvas-wrap { height: auto; aspect-ratio: 1000 / 620; min-height: 210px; }
+  .canvas-wrap { max-height: none; min-height: 0; }
   .canvas-hint { display: none; }
   .foot { padding: 12px 14px 22px; }
 }

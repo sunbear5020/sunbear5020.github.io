@@ -271,10 +271,12 @@ const Scene = (() => {
     ctx.save();
     ctx.strokeStyle = CH; ctx.lineWidth = 2;
     ctx.fillStyle = '#F7F4EC';
-    ctx.fillRect(560, 578, 92, 14);
-    ctx.beginPath(); ctx.moveTo(560, 578); ctx.lineTo(560, 566); ctx.stroke();
-    ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.arc(560, 566, 78, -Math.PI / 2, 0); ctx.stroke();
+    ctx.fillRect(600, 580, 62, 14);
+    ctx.beginPath(); ctx.moveTo(600, 580); ctx.lineTo(600, 568); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(600, 566); ctx.lineTo(656, 566); ctx.stroke();
+    ctx.setLineDash([2, 5]);
+    ctx.strokeStyle = 'rgba(20,20,19,.4)';
+    ctx.beginPath(); ctx.arc(600, 566, 56, -Math.PI / 2, 0); ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
 
@@ -303,7 +305,7 @@ const Scene = (() => {
   }
 
   function drawWhiteboard(time) {
-    const x = 372, y = 62, w = 300, h = 46;
+    const x = 372, y = 62, w = 300, h = 52;
     ctx.save();
     ctx.shadowColor = 'rgba(20,20,19,.10)';
     ctx.shadowBlur = 8;
@@ -318,12 +320,12 @@ const Scene = (() => {
     ctx.strokeStyle = 'rgba(20,20,19,.10)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x + 8, y + h - 7); ctx.lineTo(x + w - 8, y + h - 7); ctx.stroke();
 
-    label('TODAY', x + 12, y + 15, 8, 'rgba(20,20,19,.45)', '700', 'left');
+    label('TODAY', x + 12, y + 16, 8, 'rgba(20,20,19,.45)', '700', 'left');
     const t = planText || '지시를 기다리는 중 — 아래 입력창에 지시를 내려 주세요';
     ctx.font = '700 11px "Pretendard", -apple-system, "Apple SD Gothic Neo", sans-serif';
     ctx.fillStyle = CH;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(fit(t, 276), x + 12, y + 30);
+    ctx.fillText(fit(t, 274), x + 12, y + 34);
 
     // 마커 트레이
     ctx.fillStyle = TERRA;
@@ -346,8 +348,8 @@ const Scene = (() => {
 
     // 명패
     ctx.fillStyle = SAGE;
-    roundRect(x + 12, y + h - 20, 96, 13, 2); ctx.fill();
-    label('김건우 교수 · @sunbear', x + 60, y + h - 13.5, 7.4, '#F7F4EC', '700');
+    roundRect(x + 12, y + h - 22, 116, 14, 2); ctx.fill();
+    label('김건우 교수 · @sunbear', x + 70, y + h - 15, 7.4, '#F7F4EC', '700');
 
     // 서류·노트북
     ctx.fillStyle = PAPER; ctx.strokeStyle = 'rgba(20,20,19,.35)'; ctx.lineWidth = 1;
@@ -407,7 +409,6 @@ const Scene = (() => {
       ctx.beginPath(); ctx.ellipse(x + dx, y + dy, 1.7, 1.7 * blink, 0, 0, Math.PI * 2); ctx.fill();
     });
 
-    label('@sunbear', x, y + 26, 6.4, 'rgba(20,20,19,.55)', '700');
     ctx.restore();
   }
 
@@ -576,7 +577,7 @@ const Scene = (() => {
   }
 
   function drawPlants(time) {
-    [[92, 232], [934, 176], [934, 420]].forEach(([x, y], i) => {
+    [[326, 152], [704, 170], [742, 468]].forEach(([x, y], i) => {
       const sw = Math.sin(time * 1.1 + i) * 0.02;
       ctx.save();
       ctx.translate(x, y);
