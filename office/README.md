@@ -84,6 +84,8 @@ tailscale serve --bg 8000        # 사설망에서만 접근
 - `POST /api/plan` `{"command": "..."}`
 - `POST /api/stream` `{"command": "..."}` → `event: plan|task|log|result|done`
 
+서버 내장 시뮬레이터는 회의비·인건비·숲결/DTx·코호트 4종 플레이북을 제공하고, `OPENAI_API_KEY`가 있으면 실제 LLM이 계획을 만듭니다.
+
 > 보안: 인증은 `LAB_TOKEN` 하나뿐입니다. **공인 인터넷에 노출하지 말고** Tailscale 사설망 안에서만 쓰세요.
 > 브라우저에 API 키를 두는 방식은 데모·개인용 전제이며, 공용 PC에서는 쓰지 않는 것이 좋습니다.
 
