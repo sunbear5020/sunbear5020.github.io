@@ -239,6 +239,7 @@ body {
 
 .pane-note { font-size: 11.4px; color: var(--muted); line-height: 1.55; margin: 12px 0; }
 .pane-note b { color: var(--charcoal); }
+.note-dim { color: var(--muted-2); font-size: 10.6px; }
 .empty { font-size: 11.8px; color: var(--muted-2); padding: 18px 2px; }
 
 /* ── 결과물 카드 ──────────────────────────────────────── */
