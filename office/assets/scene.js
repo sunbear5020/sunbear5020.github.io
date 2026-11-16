@@ -249,17 +249,6 @@ const Scene = (() => {
     roundRect(42, 42, 916, 536, 4);
     ctx.stroke();
 
-    // 창 (상단 벽)
-    [[276, 86], [836, 84]].forEach(([x, w]) => {
-      ctx.fillStyle = '#EDF2EF';
-      roundRect(x, 31, w, 11, 2); ctx.fill();
-      ctx.strokeStyle = CH; ctx.lineWidth = 1.4; ctx.stroke();
-      ctx.strokeStyle = 'rgba(20,20,19,.2)'; ctx.lineWidth = 1;
-      for (let i = 1; i < 3; i++) {
-        ctx.beginPath(); ctx.moveTo(x + (w / 3) * i, 31); ctx.lineTo(x + (w / 3) * i, 42); ctx.stroke();
-      }
-    });
-
     // 출입문 (하단 벽)
     ctx.save();
     ctx.strokeStyle = CH; ctx.lineWidth = 2;
