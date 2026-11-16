@@ -333,30 +333,27 @@ const Scene = (() => {
     const { x, y, w, h } = PI_DESK;
     deskBase(x, y, w, h);
 
-    // 노트북·서류
-    ctx.fillStyle = '#232321';
-    roundRect(x + w - 82, y + 10, 52, 30, 2.5); ctx.fill();
-    ctx.fillStyle = 'rgba(250,249,245,.16)';
-    roundRect(x + w - 78, y + 14, 44, 22, 1.5); ctx.fill();
+    // 서류·노트북
     ctx.fillStyle = PAPER;
-    roundRect(x + w - 142, y + 12, 38, 24, 1.5); ctx.fill();
-    ctx.strokeStyle = 'rgba(20,20,19,.3)'; ctx.lineWidth = 1; ctx.stroke();
+    roundRect(x + 16, y + 14, 36, 24, 1.5); ctx.fill();
+    ctx.strokeStyle = 'rgba(20,20,19,.28)'; ctx.lineWidth = 1; ctx.stroke();
 
-    // 명패 (맨 위에)
+    ctx.fillStyle = '#232321';
+    roundRect(x + w - 66, y + 12, 50, 30, 2.5); ctx.fill();
+    ctx.fillStyle = 'rgba(250,249,245,.16)';
+    roundRect(x + w - 62, y + 16, 42, 22, 1.5); ctx.fill();
+
+    // 명패
     ctx.fillStyle = SAGE;
-    roundRect(x + 10, y + h - 21, 126, 16, 2); ctx.fill();
-    label('김건우 교수 · @sunbear', x + 73, y + h - 12.8, 7.8, '#F7F4EC', '700');
+    roundRect(x + 8, y + h - 21, 124, 15, 2); ctx.fill();
+    label('김건우 교수 · @sunbear', x + 70, y + h - 13, 7.6, '#F7F4EC', '700');
 
-    // PI 의자 자리
-    ctx.fillStyle = '#EFE9DA';
-    ctx.beginPath(); ctx.ellipse(PI.x, PI.y + 24, 24, 11, 0, 0, Math.PI * 2); ctx.fill();
-
-    const bob = Math.sin(time * 1.6) * 1.2;
-    drawBear(PI.x, PI.y + bob, time);
+    // PI (책상 뒤)
+    drawBear(PI.x, PI.y + Math.sin(time * 1.6) * 1.2, time);
 
     const pending = agents.some(a => a.state === 'waiting');
-    if (pending) bubble('보고 받는 중', PI.x, PI.y - 28, null, true);
-    else label('PI DESK', PI.x, PI.y + 42, 7, 'rgba(20,20,19,.3)', '700');
+    if (pending) bubble('보고 받는 중', PI.x, PI.y - 26, null, true);
+    else label('PI DESK', PI.x, y + h + 10, 6.8, 'rgba(20,20,19,.32)', '700');
   }
 
   function drawBear(x, y, time) {
@@ -614,14 +611,18 @@ const Scene = (() => {
     ctx.beginPath(); ctx.arc(a.x + 11, y - 11, 4, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = PAPER; ctx.lineWidth = 1.4; ctx.stroke();
 
-    // 이름표
-    ctx.font = '700 8px "Pretendard", -apple-system, "Apple SD Gothic Neo", sans-serif';
-    const tw = ctx.measureText(a.short).width + 11;
-    ctx.fillStyle = 'rgba(250,249,245,.94)';
-    roundRect(a.x - tw / 2, y + 19, tw, 12, 6);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(20,20,19,.18)'; ctx.lineWidth = 1; ctx.stroke();
-    label(a.short, a.x, y + 25.2, 8, CH, '700');
+    // 이름표 (자리를 떠 있을 때만 — 책상에는 이름 태그가 있음)
+    const seat = DESKS[agents.indexOf(a) % DESKS.length].seat;
+    const atDesk = Math.hypot(a.x - seat.x, a.y - seat.y) < 10;
+    if (!atDesk) {
+      ctx.font = '700 8px "Pretendard", -apple-system, "Apple SD Gothic Neo", sans-serif';
+      const tw = ctx.measureText(a.short).width + 11;
+      ctx.fillStyle = 'rgba(250,249,245,.94)';
+      roundRect(a.x - tw / 2, y + 19, tw, 12, 6);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(20,20,19,.18)'; ctx.lineWidth = 1; ctx.stroke();
+      label(a.short, a.x, y + 25.2, 8, CH, '700');
+    }
 
     if (a.bubble) bubble(a.bubble, a.x, y - 27 - ((agents.indexOf(a) % 2) * 17), st);
 
