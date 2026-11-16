@@ -468,11 +468,6 @@ dialog::backdrop { background: rgba(20,20,19,.42); backdrop-filter: blur(2px); }
   .panel { border-radius: 3px; }
   .tab { padding: 11px 11px 9px; font-size: 12px; }
   .canvas-legend { gap: 8px; font-size: 9.2px; left: 8px; bottom: 7px; }
-  .canvas-wrap {
-    height: 380px; aspect-ratio: auto;
-    overflow-x: auto; overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
   .topbar-meta .dot-sep { display: none; }
   .mode-grid { grid-template-columns: 1fr; }
   .field-group { grid-template-columns: 1fr; }
