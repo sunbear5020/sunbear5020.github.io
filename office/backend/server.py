@@ -58,10 +58,14 @@ def guard(x_lab_token: str | None = Header(default=None)) -> None:
 # 내장 시뮬레이터 (API 키가 없을 때)
 # ──────────────────────────────────────────────────────────────
 AGENTS = {
+    "cohort": "코호트 분석가 (건보공단 가명결합)",
+    "geo": "공간·GIS 분석가 (GIS·GPS·DWG)",
+    "env": "미기상·열환경 분석가 (Rhino·Grasshopper·Ladybug)",
+    "engine": "숲결 엔진 연구원",
+    "dtx": "DTx·생체지표 연구원",
     "budget": "과제비·정산 매니저",
-    "data": "데이터 분석가",
-    "writer": "보고서·논문 라이터",
-    "coord": "문헌·행정 코디네이터",
+    "writer": "보고서·강의 라이터",
+    "kirby": "커비 (블로그·행정 코디네이터)",
 }
 
 SIM_PLAYBOOKS = [
@@ -86,7 +90,7 @@ SIM_PLAYBOOKS = [
                 },
             },
             {
-                "agent": "coord",
+                "agent": "kirby",
                 "title": "참석자·증빙 취합",
                 "mode": "조사",
                 "bubble": "증빙 확인 중",
@@ -113,7 +117,7 @@ SIM_PLAYBOOKS = [
                 },
             },
             {
-                "agent": "data",
+                "agent": "cohort",
                 "title": "집행률·잔액 확인",
                 "mode": "조사",
                 "bubble": "집행률 계산 중",
@@ -146,7 +150,7 @@ SIM_PLAYBOOKS = [
                 },
             },
             {
-                "agent": "data",
+                "agent": "cohort",
                 "title": "지급액 정합성 검증",
                 "mode": "작성",
                 "bubble": "지급액 검산 중",
@@ -158,7 +162,7 @@ SIM_PLAYBOOKS = [
                 },
             },
             {
-                "agent": "coord",
+                "agent": "kirby",
                 "title": "참여연구원 명단 대조",
                 "mode": "조사",
                 "bubble": "명단 대조 중",
@@ -189,7 +193,7 @@ GENERIC = {
     "title": "지시 분해 · 실행 계획",
     "tasks": [
         {
-            "agent": "coord", "title": "요구사항·자료 확인", "mode": "조사", "bubble": "자료 확인 중",
+            "agent": "kirby", "title": "요구사항·자료 확인", "mode": "조사", "bubble": "자료 확인 중",
             "logs": ["관련 자료·규정 위치를 확인했습니다.", "확인 필요 항목 3개를 뽑았습니다."],
             "deliverable": {
                 "title": "요구사항 정리", "type": "요약",
@@ -213,7 +217,7 @@ GENERIC = {
             },
         },
         {
-            "agent": "data", "title": "수치 검토", "mode": "작성", "bubble": "데이터 확인 중",
+            "agent": "cohort", "title": "수치 검토", "mode": "작성", "bubble": "데이터 확인 중",
             "logs": ["지표의 기준연도와 단위를 맞췄습니다."],
             "deliverable": {
                 "title": "수치 검토 메모", "type": "요약",
@@ -240,10 +244,10 @@ def sim_plan(command: str) -> dict[str, Any]:
 # LLM 계획 (OPENAI_API_KEY 가 있을 때)
 # ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """너는 경상국립대 FEI · HEL 인간환경연구실(교수 김건우)의 가상 연구실 오케스트레이터다.
-교수 지시를 4명의 연구원(budget 정산, data 분석, writer 보고서, coord 행정)에게 나눠 배정한다.
+교수 지시를 8명의 직원에게 나눠 배정한다: cohort(코호트 분석), geo(공간·GIS·DWG), env(미기상·열환경 Rhino/Grasshopper/Ladybug), engine(숲결 엔진), dtx(DTx·생체지표), budget(과제비·정산), writer(보고서·강의자료), kirby(블로그·행정).
 결과물은 실제 결재·제출에 쓸 수 있는 수준으로 쓰고, 모르는 금액·규정·날짜는 "확인 필요"/"○○"로 둔다.
 출력은 JSON 하나만: {"title":"...","tasks":[{"agent":"budget","title":"...","mode":"작성","bubble":"12자 이내","logs":["..."],"deliverable":{"title":"...","type":"초안","body":"## 소제목\\n- 항목"}}]}
-mode는 "조사"|"작성", type은 "초안"|"체크리스트"|"요약"|"표", 태스크 3~4개, 연구원당 1개."""
+mode는 "조사"|"작성", type은 "초안"|"체크리스트"|"요약"|"표", 태스크 3~5개, 직원당 1개."""
 
 
 async def llm_plan(command: str) -> dict[str, Any]:
@@ -312,7 +316,7 @@ async def stream(body: Command, _: None = Depends(guard)) -> StreamingResponse:
         await asyncio.sleep(0.4 / speed)
 
         for t in tasks:
-            aid = t.get("agent", "coord")
+            aid = t.get("agent", "kirby")
             yield sse("task", {
                 "agent": aid,
                 "state": "write" if t.get("mode") == "작성" else "research",
@@ -335,7 +339,7 @@ async def stream(body: Command, _: None = Depends(guard)) -> StreamingResponse:
         await asyncio.sleep(1.6 / speed)
 
         for t in tasks:
-            aid = t.get("agent", "coord")
+            aid = t.get("agent", "kirby")
             yield sse("task", {"agent": aid, "state": "waiting", "bubble": "보고 · 승인 대기", "spot": "pi", "progress": 1})
             await asyncio.sleep(0.9 / speed)
             d = t.get("deliverable", {})

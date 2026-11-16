@@ -17,12 +17,10 @@
     logs: 0
   };
 
-  const model = {
-    budget: { state: 'idle', bubble: '', progress: 0, task: '', logs: [] },
-    data: { state: 'idle', bubble: '', progress: 0, task: '', logs: [] },
-    writer: { state: 'idle', bubble: '', progress: 0, task: '', logs: [] },
-    coord: { state: 'idle', bubble: '', progress: 0, task: '', logs: [] }
-  };
+  const model = {};
+  AGENTS.forEach(a => {
+    model[a.id] = { state: 'idle', bubble: '', progress: 0, task: '', logs: [] };
+  });
 
   const STATUS_LABEL = {
     idle: '대기', research: '조사', write: '작성', meet: '협업',
@@ -92,6 +90,7 @@
     renderCrew();
     renderLegend();
     bindUI();
+    $('#statTotal').textContent = AGENTS.length;
     updateStats();
     updateModePill();
     const saved = Adapter.get();
@@ -185,6 +184,7 @@
 
   /* ── 상태 반영 ────────────────────────────────────────── */
   function setAgent(id, patch) {
+    if (!model[id]) return;
     Object.assign(model[id], patch);
     Scene.updateAgent(id, {
       state: patch.state != null ? patch.state : model[id].state,
@@ -329,7 +329,10 @@
     setProgress(10);
 
     addLog('orc', `작업 분해 → ${plan.tasks.length}개 태스크`);
-    plan.tasks.forEach(t => addLog('orc', `· ${AGENT_BY_ID[t.agent].name} — ${t.title}`));
+    plan.tasks.forEach(t => {
+      const an = AGENT_BY_ID[t.agent];
+      addLog('orc', `· ${an ? an.name : t.agent} — ${t.title}`);
+    });
 
     await simulate(rid);
   }
@@ -517,7 +520,7 @@
 
   function renderCard(item) {
     $('#cardsEmpty').hidden = true;
-    const a = AGENT_BY_ID[item.agent];
+    const a = AGENT_BY_ID[item.agent] || AGENTS[0];
     const el = document.createElement('article');
     el.className = 'card';
     el.dataset.id = item.id;
