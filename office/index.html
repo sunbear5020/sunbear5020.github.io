@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FEI · HEL 가상 연구실 — Virtual Lab Office</title>
+<meta name="description" content="경상국립대학교 FEI · HEL 인간환경연구실의 가상 연구실. 452동 237호 평면도 위에서 4명의 AI 연구원이 지시를 나눠 받고, 조사·협업·작성·보고를 거쳐 교수님 승인을 기다립니다." />
+<meta name="theme-color" content="#FAF9F5" />
+<meta property="og:title" content="FEI · HEL 가상 연구실 — Virtual Lab Office" />
+<meta property="og:description" content="452동 237호 2D 가상 연구실 · 4명의 AI 연구원 · 지시 → 분배 → 협업 → 승인" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://sunbear5020.github.io/office/" />
+<link rel="stylesheet" href="assets/office.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">FEI<b>·</b>HEL</span>
+    <span class="brand-text">
+      <strong>가상 연구실</strong>
+      <span>Virtual Lab Office</span>
+    </span>
+  </div>
+
+  <div class="topbar-meta">
+    <span class="room">농대2호관 452동 237호</span>
+    <span class="dot-sep" aria-hidden="true"></span>
+    <span class="mode-pill" id="modePill"><i></i><span id="modeLabel">시뮬레이터</span></span>
+    <div class="speed" id="speedGroup" role="group" aria-label="진행 속도">
+      <button type="button" data-speed="1" class="is-on">1×</button>
+      <button type="button" data-speed="2">2×</button>
+      <button type="button" data-speed="4">4×</button>
+    </div>
+    <button type="button" class="btn btn-ghost" id="adapterBtn">
+      <span class="gear" aria-hidden="true">⚙</span> AI 어댑터
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="stage" aria-label="가상 연구실 평면도">
+    <div class="stage-head">
+      <span class="eyebrow">FLOOR PLAN · 452-237</span>
+      <div class="live-stats">
+        <span><b id="statAgents">0</b>/4 연구원</span>
+        <span class="dot-sep" aria-hidden="true"></span>
+        <span>진행 태스크 <b id="statTasks">0</b></span>
+        <span class="dot-sep" aria-hidden="true"></span>
+        <span>승인 대기 <b id="statPending">0</b></span>
+      </div>
+    </div>
+
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="officeCanvas" aria-label="452동 237호 가상 연구실 — 연구원을 클릭하면 상세 정보가 열립니다"></canvas>
+      <div class="canvas-legend" id="canvasLegend" aria-hidden="true"></div>
+      <div class="canvas-hint">연구원을 클릭하면 상세 정보 · 말풍선은 실시간 상태</div>
+    </div>
+
+    <form class="command" id="commandForm" autocomplete="off">
+      <label class="sr-only" for="commandInput">연구실에 지시할 작업</label>
+      <input id="commandInput" type="text" placeholder="교수님, 지시를 내려 주세요 — 예: ISEE 초록 마감 정리해 줘" />
+      <button type="submit" class="btn btn-solid" id="runBtn">지시 내리기</button>
+    </form>
+
+    <div class="chips" id="chips" aria-label="대표 시나리오"></div>
+  </section>
+
+  <aside class="panel" aria-label="작업 현황">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab is-on" role="tab" data-pane="timeline" aria-selected="true">타임라인</button>
+      <button type="button" class="tab" role="tab" data-pane="results" aria-selected="false">결과물 <span class="tab-badge" id="resultBadge" hidden>0</span></button>
+      <button type="button" class="tab" role="tab" data-pane="crew" aria-selected="false">연구원</button>
+    </div>
+
+    <div class="panel-body">
+      <div class="pane is-on" data-pane="timeline" id="paneTimeline">
+        <div class="run-head" id="runHead">
+          <p class="run-title" id="runTitle">대기 중</p>
+          <p class="run-sub" id="runSub">지시를 내리면 오케스트레이터가 태스크를 나눠 배정합니다.</p>
+          <div class="progress" aria-hidden="true"><i id="runBar" style="width:0%"></i></div>
+        </div>
+        <ol class="log" id="log" aria-live="polite"></ol>
+        <p class="log-empty" id="logEmpty">아직 기록이 없습니다.<br />아래 시나리오 칩으로 바로 시작해 보세요.</p>
+      </div>
+
+      <div class="pane" data-pane="results" id="paneResults">
+        <p class="pane-note" id="resultsNote">결과물 카드는 각 태스크가 교수님 데스크에 도착할 때 만들어집니다. <b>[승인]</b> 또는 <b>[수정 요청]</b>을 눌러 주세요.</p>
+        <div class="cards" id="cards"></div>
+        <p class="empty" id="cardsEmpty">아직 결과물이 없습니다.</p>
+      </div>
+
+      <div class="pane" data-pane="crew" id="paneCrew">
+        <p class="pane-note">4명의 AI 연구원은 각자 워크스테이션을 쓰고, 회의는 중앙 협업 테이블에서 합니다.</p>
+        <ul class="crew" id="crewList"></ul>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer class="foot">
+  <span>경상국립대학교 환경산림과학부 산림환경자원학과 인간환경연구실 (FEI · HEL)</span>
+  <span class="foot-right">1차 프로토타입 · 브라우저에서 동작하는 정적 앱</span>
+</footer>
+
+<!-- ── AI 어댑터 설정 ───────────────────────────────────────── -->
+<dialog id="adapterModal" class="modal">
+  <form method="dialog" class="modal-inner" id="adapterForm">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">AI ADAPTER</p>
+        <h2>AI 어댑터 설정</h2>
+      </div>
+      <button type="button" class="icon-btn" id="adapterClose" aria-label="닫기">✕</button>
+    </div>
+
+    <p class="modal-lead">기본값은 <b>내장 연구실 시뮬레이터</b>입니다. API 키나 로컬 서버 주소를 넣으면 실제 LLM · SSE 스트림으로 전환됩니다. 키는 이 브라우저(localStorage)에만 저장되고 어디로도 전송되지 않습니다.</p>
+
+    <div class="mode-grid" id="modeGrid">
+      <label class="mode"><input type="radio" name="mode" value="simulator" /><span><b>시뮬레이터</b><i>키 없이 즉시 체험 · 결정론적 예시 초안</i></span></label>
+      <label class="mode"><input type="radio" name="mode" value="openai" /><span><b>OpenAI</b><i>Responses 대신 Chat Completions 스트림</i></span></label>
+      <label class="mode"><input type="radio" name="mode" value="anthropic" /><span><b>Anthropic</b><i>Messages API · 브라우저 직접 호출</i></span></label>
+      <label class="mode"><input type="radio" name="mode" value="gemini" /><span><b>Google Gemini</b><i>streamGenerateContent (SSE)</i></span></label>
+      <label class="mode"><input type="radio" name="mode" value="local" /><span><b>로컬 FastAPI</b><i>사무실 데스크탑 · Tailscale 주소</i></span></label>
+    </div>
+
+    <div class="field-group" data-for="openai">
+      <label>API 키<input type="password" id="openaiKey" placeholder="sk-…" /></label>
+      <label>모델<input type="text" id="openaiModel" placeholder="gpt-4o-mini" /></label>
+    </div>
+    <div class="field-group" data-for="anthropic">
+      <label>API 키<input type="password" id="anthropicKey" placeholder="sk-ant-…" /></label>
+      <label>모델<input type="text" id="anthropicModel" placeholder="claude-sonnet-4-5" /></label>
+    </div>
+    <div class="field-group" data-for="gemini">
+      <label>API 키<input type="password" id="geminiKey" placeholder="AIza…" /></label>
+      <label>모델<input type="text" id="geminiModel" placeholder="gemini-2.0-flash" /></label>
+    </div>
+    <div class="field-group" data-for="local">
+      <label>서버 주소<input type="url" id="localUrl" placeholder="http://100.64.0.12:8000" /></label>
+      <label>접근 토큰 (선택)<input type="text" id="localToken" placeholder="서버에서 설정한 경우" /></label>
+    </div>
+
+    <p class="modal-note" id="adapterError" role="alert" hidden></p>
+
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" id="adapterTest">연결 테스트</button>
+      <span class="grow"></span>
+      <button type="button" class="btn btn-ghost" id="adapterReset">기본값</button>
+      <button type="button" class="btn btn-solid" id="adapterSave">저장</button>
+    </div>
+    <p class="modal-fine">로컬 백엔드는 <code>office/backend/</code>에 있는 FastAPI 서버를 <code>uvicorn server:app</code>로 띄워 연결합니다. README 참고.</p>
+  </form>
+</dialog>
+
+<!-- ── 연구원 상세 ─────────────────────────────────────────── -->
+<dialog id="agentModal" class="modal modal-sm">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow" id="agentEyebrow">RESEARCHER</p>
+        <h2 id="agentName">연구원</h2>
+      </div>
+      <button type="button" class="icon-btn" id="agentClose" aria-label="닫기">✕</button>
+    </div>
+    <p class="agent-role" id="agentRole"></p>
+    <div class="agent-status-row">
+      <span class="status-tag" id="agentStatusTag">대기</span>
+      <span class="agent-progress" id="agentProgress"></span>
+    </div>
+    <div class="agent-block">
+      <p class="eyebrow">담당 영역</p>
+      <ul class="agent-areas" id="agentAreas"></ul>
+    </div>
+    <div class="agent-block">
+      <p class="eyebrow">현재 작업</p>
+      <p class="agent-task" id="agentTask">배정된 작업 없음</p>
+    </div>
+    <div class="agent-block">
+      <p class="eyebrow">최근 기록</p>
+      <ul class="agent-log" id="agentLog"></ul>
+    </div>
+    <div class="modal-foot">
+      <span class="grow"></span>
+      <button type="button" class="btn btn-ghost" id="agentAssign">이 연구원에게 지시</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/scene.js"></script>
+<script src="assets/adapter.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
