@@ -624,7 +624,8 @@ const Scene = (() => {
       label(a.short, a.x, y + 25.2, 8, CH, '700');
     }
 
-    if (a.bubble) bubble(a.bubble, a.x, y - 27 - ((agents.indexOf(a) % 2) * 17), st);
+    const stagger = a.state === 'meet' ? (agents.indexOf(a) % 2) * 17 : 0;
+    if (a.bubble) bubble(a.bubble, a.x, y - 27 - stagger, st);
 
     ctx.restore();
   }
