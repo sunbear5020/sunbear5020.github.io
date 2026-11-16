@@ -25,7 +25,10 @@ const Scene = (() => {
   /* ── 배치 ─────────────────────────────────────────────── */
   const PI_DESK = { x: 56, y: 96, w: 196, h: 64 };
   const PI = { x: 154, y: 76 };
-  const PI_SPOT = { x: 154, y: 190 };
+  const PI_SPOTS = [
+    { x: 96, y: 178 }, { x: 134, y: 176 }, { x: 174, y: 176 }, { x: 212, y: 178 },
+    { x: 112, y: 200 }, { x: 152, y: 202 }, { x: 192, y: 202 }, { x: 228, y: 196 }
+  ];
   const WHITEBOARD = { x: 384, y: 56, w: 272, h: 44 };
   const TABLE = { cx: 500, cy: 330, rx: 150, ry: 60 };
   const RUG = { x: 330, y: 258, w: 340, h: 144 };
@@ -133,7 +136,7 @@ const Scene = (() => {
     let target;
     if (spot === 'desk') target = DESKS[idx % DESKS.length].seat;
     else if (spot === 'table') target = TABLE_SEATS[idx % TABLE_SEATS.length];
-    else if (spot === 'pi') target = PI_SPOT;
+    else if (spot === 'pi') target = PI_SPOTS[idx % PI_SPOTS.length];
     else if (spot === 'coffee') target = COFFEE_SPOT;
     else return;
 
