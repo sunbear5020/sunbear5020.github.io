@@ -623,7 +623,7 @@ const Scene = (() => {
     ctx.strokeStyle = 'rgba(20,20,19,.18)'; ctx.lineWidth = 1; ctx.stroke();
     label(a.short, a.x, y + 25.2, 8, CH, '700');
 
-    if (a.bubble) bubble(a.bubble, a.x, y - 27, st);
+    if (a.bubble) bubble(a.bubble, a.x, y - 27 - ((agents.indexOf(a) % 2) * 17), st);
 
     ctx.restore();
   }

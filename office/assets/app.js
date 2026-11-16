@@ -402,7 +402,7 @@
     state.tasks.forEach(t => Scene.goTo(t.agent, 'table'));
     await wait(1100);
     if (rid !== state.runId) return;
-    state.tasks.forEach(t => setAgent(t.agent, { state: 'meet', bubble: '교차 검토 중', progress: 0.85 }));
+    state.tasks.forEach(t => setAgent(t.agent, { state: 'meet', bubble: '교차 검토', progress: 0.85 }));
     setProgress(60);
     await wait(1700);
     if (rid !== state.runId) return;
