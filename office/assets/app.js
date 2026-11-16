@@ -171,6 +171,7 @@
     $('#adapterReset').addEventListener('click', () => {
       Adapter.reset();
       fillAdapterForm(Adapter.get());
+      updateModePill();
       toast('기본값(시뮬레이터)으로 되돌렸습니다', 'quiet');
     });
 
