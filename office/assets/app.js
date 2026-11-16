@@ -355,7 +355,7 @@
 
     state.tasks.forEach(t => {
       Scene.goTo(t.agent, 'desk');
-      setAgent(t.agent, { state: 'idle', bubble: '', progress: 0, task: '' });
+      setAgent(t.agent, { state: 'waiting', bubble: '승인 대기', progress: 1, task: '' });
     });
     state.running = false;
     setProgress(100);

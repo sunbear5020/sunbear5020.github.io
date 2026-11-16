@@ -181,6 +181,8 @@ body {
   padding: 6px 12px; cursor: pointer; transition: all .15s;
 }
 .chip:hover { border-color: var(--terra); color: var(--terra-deep); background: #FDF7F3; }
+.chip:focus { outline: none; }
+.chip:focus-visible { outline: 2px solid var(--terra-deep); outline-offset: 1px; }
 
 /* ── 우측 패널 ────────────────────────────────────────── */
 .panel {
@@ -263,12 +265,12 @@ body {
 .card-meta { margin: 0; font-size: 10.4px; color: var(--muted-2); }
 
 .card-body {
-  padding: 2px 13px 6px; max-height: 186px; overflow: hidden;
+  padding: 2px 13px 6px; max-height: 200px; overflow: hidden;
   position: relative;
 }
 .card-body::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 34px;
-  background: linear-gradient(rgba(255,253,249,0), #FFFDF9);
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 46px;
+  background: linear-gradient(rgba(255,253,249,0), rgba(255,253,249,.92) 55%, #FFFDF9);
   pointer-events: none;
 }
 .card.is-open .card-body { max-height: none; }
@@ -295,9 +297,10 @@ body {
 }
 
 .card-foot {
-  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
   padding: 8px 12px; border-top: 1px solid var(--line-2); background: #FBF9F3;
 }
+.card-foot .icon-text { padding: 4px 3px; }
 .card-state { font-size: 10.4px; color: var(--muted); font-weight: 600; }
 .card[data-status="approved"] { border-color: #C9D6CA; background: #FCFDFB; }
 .card[data-status="approved"] .card-state { color: var(--sage); }
