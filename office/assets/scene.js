@@ -251,9 +251,13 @@ const Scene = (() => {
 
     // 창 (상단 벽)
     [[276, 86], [836, 84]].forEach(([x, w]) => {
-      ctx.fillStyle = '#E7EDEA';
-      roundRect(x, 24, w, 11, 2); ctx.fill();
-      ctx.strokeStyle = CH; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#EDF2EF';
+      roundRect(x, 31, w, 11, 2); ctx.fill();
+      ctx.strokeStyle = CH; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.strokeStyle = 'rgba(20,20,19,.2)'; ctx.lineWidth = 1;
+      for (let i = 1; i < 3; i++) {
+        ctx.beginPath(); ctx.moveTo(x + (w / 3) * i, 31); ctx.lineTo(x + (w / 3) * i, 42); ctx.stroke();
+      }
     });
 
     // 출입문 (하단 벽)
@@ -446,10 +450,12 @@ const Scene = (() => {
     // 이름표
     if (agent) {
       const ty = desk.flip ? y + h + 4 : y - 14;
+      ctx.font = '800 6.4px "Pretendard", -apple-system, "Apple SD Gothic Neo", sans-serif';
+      const tw = Math.max(20, ctx.measureText(agent.short).width + 7);
       ctx.fillStyle = agent.tint;
-      roundRect(x, ty, 22, 11, 2); ctx.fill();
+      roundRect(x, ty, tw, 11, 2); ctx.fill();
       ctx.strokeStyle = 'rgba(20,20,19,.18)'; ctx.stroke();
-      label(agent.short, x + 11, ty + 5.8, 6.6, agent.color, '800');
+      label(agent.short, x + tw / 2, ty + 5.8, 6.4, agent.color, '800');
     }
 
     // 의자
@@ -548,7 +554,7 @@ const Scene = (() => {
   }
 
   function drawPlants(time) {
-    [[352, 186], [700, 462], [252, 560]].forEach(([x, y], i) => {
+    [[352, 186], [700, 462], [258, 516]].forEach(([x, y], i) => {
       const sw = Math.sin(time * 1.1 + i) * 0.02;
       ctx.save();
       ctx.translate(x, y);
