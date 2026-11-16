@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /hel-fei-site/tools/
 
+Sitemap: https://sunbear5020.github.io/sitemap.xml
 Sitemap: https://sunbear5020.github.io/hel-fei-site/sitemap.xml
