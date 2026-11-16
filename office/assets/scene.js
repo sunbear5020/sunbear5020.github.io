@@ -89,8 +89,9 @@ const Scene = (() => {
   function resize() {
     if (!canvas || !wrap) return;
     const r = wrap.getBoundingClientRect();
-    const w = Math.max(280, Math.floor(r.width));
-    const h = Math.max(200, Math.floor(r.height));
+    const compact = window.matchMedia('(max-width: 640px)').matches;
+    const w = compact ? 600 : Math.max(280, Math.floor(r.width));
+    const h = compact ? 372 : Math.max(200, Math.floor(r.height));
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
@@ -99,6 +100,7 @@ const Scene = (() => {
     scale = Math.min(w / W, h / H);
     ox = (w - W * scale) / 2;
     oy = (h - H * scale) / 2;
+    if (compact) wrap.scrollLeft = Math.max(0, (w - wrap.clientWidth) / 2);
   }
 
   /* ── 에이전트 ─────────────────────────────────────────── */
