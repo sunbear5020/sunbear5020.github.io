@@ -265,16 +265,14 @@ body {
 .card-meta { margin: 0; font-size: 10.4px; color: var(--muted-2); }
 
 .card-body {
-  padding: 2px 13px 6px; max-height: 200px; overflow: hidden;
-  position: relative;
+  padding: 2px 13px 6px; max-height: 198px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 74%, transparent 100%);
 }
-.card-body::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 46px;
-  background: linear-gradient(rgba(255,253,249,0), rgba(255,253,249,.92) 55%, #FFFDF9);
-  pointer-events: none;
+.card.is-open .card-body {
+  max-height: none;
+  -webkit-mask-image: none; mask-image: none;
 }
-.card.is-open .card-body { max-height: none; }
-.card.is-open .card-body::after { display: none; }
 
 .markdown h4 {
   font-size: 11.6px; margin: 9px 0 3px; color: var(--charcoal);

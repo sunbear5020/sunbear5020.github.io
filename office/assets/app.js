@@ -421,6 +421,7 @@
     if (rid !== state.runId) return;
     addResult(t);
     t.reported = true;
+    if (state.tasks.length && state.tasks.every(x => x.reported)) switchTab('results');
     addLog(t.agent, `결과물 전달 — 「${t.deliverable.title}」 · 승인 대기`);
     updateProgress();
     updateStats();
@@ -504,8 +505,6 @@
     if (badge && !badge.hidden) badge.classList.add('pulse');
     setTimeout(() => badge && badge.classList.remove('pulse'), 1200);
 
-    // 이번 실행의 첫 결과물이면 결과물 탭으로 이동
-    if (state.results.length === 1) switchTab('results');
     return item;
   }
 
