@@ -26,8 +26,8 @@ const Scene = (() => {
   const PI_DESK = { x: 56, y: 96, w: 196, h: 64 };
   const PI = { x: 154, y: 76 };
   const PI_SPOTS = [
-    { x: 96, y: 178 }, { x: 134, y: 176 }, { x: 174, y: 176 }, { x: 212, y: 178 },
-    { x: 112, y: 200 }, { x: 152, y: 202 }, { x: 192, y: 202 }, { x: 228, y: 196 }
+    { x: 94, y: 198 }, { x: 132, y: 196 }, { x: 172, y: 196 }, { x: 210, y: 198 },
+    { x: 110, y: 220 }, { x: 150, y: 222 }, { x: 190, y: 222 }, { x: 226, y: 216 }
   ];
   const WHITEBOARD = { x: 384, y: 56, w: 272, h: 44 };
   const TABLE = { cx: 500, cy: 330, rx: 150, ry: 60 };
@@ -37,9 +37,9 @@ const Scene = (() => {
   const SHELF = { x: 470, y: 536, w: 150, h: 26 };
 
   const DESKS = [
-    { id: 'cohort', x: 56,  y: 210, w: 168, h: 60, seat: { x: 140, y: 292 } },
-    { id: 'geo',    x: 56,  y: 310, w: 168, h: 60, seat: { x: 140, y: 392 } },
-    { id: 'env',    x: 56,  y: 410, w: 168, h: 60, seat: { x: 140, y: 492 } },
+    { id: 'cohort', x: 56,  y: 228, w: 168, h: 60, seat: { x: 140, y: 310 } },
+    { id: 'geo',    x: 56,  y: 328, w: 168, h: 60, seat: { x: 140, y: 410 } },
+    { id: 'env',    x: 56,  y: 428, w: 168, h: 60, seat: { x: 140, y: 510 } },
     { id: 'engine', x: 778, y: 170, w: 168, h: 60, seat: { x: 862, y: 252 } },
     { id: 'dtx',    x: 778, y: 270, w: 168, h: 60, seat: { x: 862, y: 352 } },
     { id: 'budget', x: 778, y: 370, w: 168, h: 60, seat: { x: 862, y: 452 } },
@@ -333,19 +333,19 @@ const Scene = (() => {
     const { x, y, w, h } = PI_DESK;
     deskBase(x, y, w, h);
 
-    // 명패
-    ctx.fillStyle = SAGE;
-    roundRect(x + 12, y + h - 22, 122, 15, 2); ctx.fill();
-    label('김건우 교수 · @sunbear', x + 73, y + h - 14.5, 7.6, '#F7F4EC', '700');
-
     // 노트북·서류
     ctx.fillStyle = '#232321';
-    roundRect(x + w - 82, y + 12, 52, 32, 2.5); ctx.fill();
+    roundRect(x + w - 82, y + 10, 52, 30, 2.5); ctx.fill();
     ctx.fillStyle = 'rgba(250,249,245,.16)';
-    roundRect(x + w - 78, y + 16, 44, 24, 1.5); ctx.fill();
+    roundRect(x + w - 78, y + 14, 44, 22, 1.5); ctx.fill();
     ctx.fillStyle = PAPER;
-    roundRect(x + w - 140, y + 18, 40, 26, 1.5); ctx.fill();
+    roundRect(x + w - 142, y + 12, 38, 24, 1.5); ctx.fill();
     ctx.strokeStyle = 'rgba(20,20,19,.3)'; ctx.lineWidth = 1; ctx.stroke();
+
+    // 명패 (맨 위에)
+    ctx.fillStyle = SAGE;
+    roundRect(x + 10, y + h - 21, 126, 16, 2); ctx.fill();
+    label('김건우 교수 · @sunbear', x + 73, y + h - 12.8, 7.8, '#F7F4EC', '700');
 
     // PI 의자 자리
     ctx.fillStyle = '#EFE9DA';
@@ -546,7 +546,7 @@ const Scene = (() => {
   }
 
   function drawPlants(time) {
-    [[352, 186], [700, 462], [258, 516]].forEach(([x, y], i) => {
+    [[352, 196], [700, 462], [258, 536]].forEach(([x, y], i) => {
       const sw = Math.sin(time * 1.1 + i) * 0.02;
       ctx.save();
       ctx.translate(x, y);
