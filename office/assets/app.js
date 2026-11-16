@@ -400,7 +400,7 @@
   async function meeting(rid) {
     addLog('orc', '중앙 협업 테이블 — 결과 교차 검토를 시작합니다.');
     state.tasks.forEach(t => Scene.goTo(t.agent, 'table'));
-    await wait(1100);
+    await wait(2400);
     if (rid !== state.runId) return;
     state.tasks.forEach(t => setAgent(t.agent, { state: 'meet', bubble: '교차 검토', progress: 0.85 }));
     setProgress(60);
