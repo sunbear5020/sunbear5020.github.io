@@ -217,7 +217,11 @@ a { color: inherit; }
   display: grid;
   grid-template-columns: repeat(12, 1fr);
   gap: 18px;
+  align-items: start;
 }
+
+/* leave room for the sticky header when jumping to a section */
+#workbench, #results, #visual, #downloads, #python, #license { scroll-margin-top: 88px; }
 
 .card {
   background: #fffefb;
