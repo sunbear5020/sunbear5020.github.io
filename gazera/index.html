@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GAZERA — Intelligent Eye-Tracking Data Analytics · HEL Lab</title>
+<meta name="description" content="GAZERA는 시선추적 CSV/TSV를 브라우저 안에서 바로 분석하는 연구용 오픈소스 워크벤치입니다. Fixation·Saccade·AOI 지표, 조건 비교, Heatmap·Scanpath 미리보기, CSV/JSON 내보내기. MIT License · FEI · HEL Lab, Gyeongsang National University.">
+<meta name="theme-color" content="#FAF9F5">
+<meta property="og:title" content="GAZERA — From Gaze Data to Visual Intelligence">
+<meta property="og:description" content="Clean-room, vendor-neutral eye-tracking analytics. 100% in-browser, MIT licensed, FEI · HEL Lab.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sunbear5020.github.io/gazera/">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141413'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23FAF9F5' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23D97757'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top" aria-label="GAZERA 홈">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M2.5 12s3.6-6.2 9.5-6.2S21.5 12 21.5 12s-3.6 6.2-9.5 6.2S2.5 12 2.5 12Z" stroke="#141413" stroke-width="1.4"/>
+          <circle cx="12" cy="12" r="3.1" fill="#D97757"/>
+          <circle cx="13.2" cy="10.8" r="0.9" fill="#FAF9F5"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">GAZERA</span>
+        <span class="brand-sub">Eye-Tracking Analytics · HEL Lab</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="주요 섹션">
+      <a href="#workbench">워크벤치</a>
+      <a href="#results">분석 결과</a>
+      <a href="#visual">시각화</a>
+      <a href="#python">Python 엔진</a>
+      <a href="#license">라이선스</a>
+    </nav>
+    <span class="header-pill"><b>MIT</b> · v0.1.0 Core</span>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="wrap">
+      <div class="eyebrow">Clean-room · vendor-neutral · open source</div>
+      <h1>From Gaze Data to <em>Visual Intelligence.</em></h1>
+      <p class="lead">
+        시선추적 장비에서 내보낸 <b>CSV / TSV</b> 파일을 그대로 불러와 데이터 품질을 점검하고,
+        자체 I-VT 알고리즘으로 응시(Fixation)·도약(Saccade)을 분류한 뒤
+        관심영역(AOI) 지표와 조건 간 비교까지 한 화면에서 정리합니다.
+        파일은 <b>브라우저 안에서만</b> 처리되며 어디에도 전송되지 않습니다.
+      </p>
+      <div class="hero-badges">
+        <span class="badge"><span class="dot"></span>100% 브라우저 실행 · 서버 불필요</span>
+        <span class="badge plain">클린룸 MIT 라이선스</span>
+        <span class="badge plain">Tobii AB 비제휴 독립 프로젝트</span>
+        <span class="badge plain">합성 데모 데이터 내장</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="workbench wrap" id="workbench">
+    <div class="grid">
+
+      <!-- 01 data ------------------------------------------------------- -->
+      <article class="card span-5">
+        <div class="card-head">
+          <span class="card-num">01</span>
+          <div>
+            <h2 class="card-title">데이터 불러오기</h2>
+            <p class="card-desc">표준 구분자 텍스트(CSV/TSV). 인코딩과 구분자는 자동 감지합니다.</p>
+          </div>
+        </div>
+
+        <div class="dropzone" id="dropzone" tabindex="0" role="button"
+             aria-label="CSV 또는 TSV 파일 선택 또는 끌어놓기">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="#D97757" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" stroke="#141413" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <strong>파일을 끌어놓거나 눌러서 선택</strong>
+          <span>.csv · .tsv · .txt · 최대 30 MB</span>
+          <div class="hint">gaze_x / gaze_y 열이 있으면 어떤 열 이름이든 됩니다</div>
+        </div>
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" class="sr-only">
+
+        <div class="btn-row">
+          <button class="btn bronze" id="demoBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            합성 데모 데이터
+          </button>
+          <button class="btn secondary" id="clearBtn" type="button">데이터 지우기</button>
+        </div>
+
+        <div class="file-meta" id="fileMeta">
+          <span class="name">아직 데이터가 없습니다</span>
+        </div>
+      </article>
+
+      <!-- 02 mapping ---------------------------------------------------- -->
+      <article class="card span-7">
+        <div class="card-head">
+          <span class="card-num">02</span>
+          <div>
+            <h2 class="card-title">컬럼 매핑</h2>
+            <p class="card-desc">자동 감지 결과입니다. 다르면 직접 골라 주세요 — 어떤 이름 구조든 됩니다.</p>
+          </div>
+          <span class="badge plain spacer" id="mapStatus">대기</span>
+        </div>
+        <div class="mapping-grid" id="mappingGrid">
+          <div class="empty" style="grid-column:1/-1">데이터를 불러오면 매핑 표가 나타납니다.</div>
+        </div>
+        <div class="auto-note">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><path d="M12 8v5m0 3h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span><b>시선 X · Y</b>는 필수입니다. 시각 열이 없으면 60 Hz 가정으로 순번 시간축을 만듭니다.
+          유효성(Validity)은 0=유효 / 0–4 척도를 자동 판별합니다.</span>
+        </div>
+      </article>
+
+      <!-- 03 quality ---------------------------------------------------- -->
+      <article class="card span-7">
+        <div class="card-head">
+          <span class="card-num">03</span>
+          <div>
+            <h2 class="card-title">데이터 품질</h2>
+            <p class="card-desc">분석 전에 반드시 확인해야 하는 값들입니다.</p>
+          </div>
+        </div>
+        <div class="stat-grid" id="statRow">
+          <div class="stat"><div class="k">총 행수</div><div class="v" id="qRows">—</div></div>
+          <div class="stat"><div class="k">유효 시선</div><div class="v" id="qValid">—</div></div>
+          <div class="stat"><div class="k">추정 샘플링</div><div class="v" id="qHz">—</div></div>
+          <div class="stat"><div class="k">결측률</div><div class="v" id="qMissing">—</div></div>
+        </div>
+        <ul class="warnings" id="warningList"></ul>
+      </article>
+
+      <!-- 04 settings --------------------------------------------------- -->
+      <article class="card span-5">
+        <div class="card-head">
+          <span class="card-num">04</span>
+          <div>
+            <h2 class="card-title">분석 설정</h2>
+            <p class="card-desc">I-VT 임계값과 관심영역(AOI)을 조정합니다.</p>
+          </div>
+        </div>
+
+        <div class="controls" style="grid-template-columns:1fr">
+          <div class="control">
+            <label for="threshold">속도 임계값 <b><span id="thresholdVal">30</span> °/s</b></label>
+            <input type="range" id="threshold" min="10" max="90" step="5" value="30">
+            <div class="sub">이보다 느리면 응시, 빠르면 도약. 일반적 권장 범위 20–40 °/s.</div>
+          </div>
+          <div class="control">
+            <label for="minFix">최소 응시시간 <b><span id="minFixVal">60</span> ms</b></label>
+            <input type="range" id="minFix" min="30" max="200" step="10" value="60">
+            <div class="sub">짧은 응시는 주변 구간에 흡수됩니다.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px">
+          <div class="aoi-head" aria-hidden="true">
+            <span>AOI 이름</span><span>X</span><span>Y</span><span>W</span><span>H</span><span></span>
+          </div>
+          <div class="aoi-editor" id="aoiEditor"></div>
+          <div class="aoi-foot">
+            <button class="link-btn" id="addAoiBtn" type="button">+ 영역 추가</button>
+            <button class="link-btn" id="resetAoiBtn" type="button">기본 3분할</button>
+            <span class="sub" style="margin-left:auto">정규화 0–1</span>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:16px">
+          <button class="btn" id="runBtn" type="button" disabled>분석 실행 →</button>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- results ---------------------------------------------------------- -->
+  <section class="wrap" id="results">
+    <div class="section-head">
+      <h2>분석 결과</h2>
+      <span class="count" id="resultCount">—</span>
+      <p id="resultSub">합성 데모 데이터를 불러오면 여기에 요약이 나타납니다.</p>
+    </div>
+
+    <div class="kpi-grid" id="kpiGrid">
+      <div class="kpi"><div class="k">응시 횟수</div><div class="v">—</div><div class="d">recording 평균</div></div>
+      <div class="kpi"><div class="k">평균 응시시간</div><div class="v">—</div><div class="d">Fixation mean</div></div>
+      <div class="kpi"><div class="k">도약 평균 진폭</div><div class="v">—</div><div class="d">Saccade amplitude</div></div>
+      <div class="kpi"><div class="k">유효 시선</div><div class="v">—</div><div class="d">valid samples</div></div>
+      <div class="kpi"><div class="k">추정 샘플링</div><div class="v">—</div><div class="d">Hz</div></div>
+      <div class="kpi accent"><div class="k">총 분석 구간</div><div class="v">—</div><div class="d">recordings × duration</div></div>
+    </div>
+
+    <div class="grid" style="margin-top:18px">
+      <article class="card span-7">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">관심영역(AOI) 지표</h2>
+            <p class="card-desc">조건별 응시시간 비율 · 방문횟수 · 최초 응시시간(TTFF)</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="aoiTable">
+            <thead>
+              <tr>
+                <th>조건</th><th>AOI</th>
+                <th class="num">응시시간</th><th class="num">비율</th>
+                <th class="num">방문</th><th class="num">TTFF</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="6" style="color:#6b6a66">분석을 실행하면 표가 채워집니다.</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card span-5">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">조건 간 비교</h2>
+            <p class="card-desc">기술통계와 차이 · 효과크기(Cohen's d)</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="statsTable">
+            <thead>
+              <tr><th>지표</th><th class="num">도시숲</th><th class="num">도심 가로</th><th class="num">d</th></tr>
+            </thead>
+            <tbody><tr><td colspan="4" style="color:#6b6a66">—</td></tr></tbody>
+          </table>
+        </div>
+        <p class="table-note" id="statsNote">평균 ± 표준편차. d는 두 조건의 표준화 평균차입니다.</p>
+      </article>
+    </div>
+
+    <details class="card flat" style="margin-top:18px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13.5px">참가자별 지표 펼치기</summary>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="data" id="participantTable">
+          <thead>
+            <tr>
+              <th>참가자</th><th>조건</th><th class="num">응시</th>
+              <th class="num">평균 응시(ms)</th><th class="num">도약</th>
+              <th class="num">진폭(°)</th><th class="num">유효(%)</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="7" style="color:#6b6a66">—</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <!-- visualisation ---------------------------------------------------- -->
+  <section class="wrap" id="visual">
+    <div class="section-head">
+      <h2>Heatmap &amp; Scanpath</h2>
+      <span class="count">GAZERA Visual 미리보기</span>
+      <p>Canvas로 그린 응시 밀도와 시선 이동 순서입니다.</p>
+    </div>
+
+    <article class="card canvas-card">
+      <div class="canvas-toolbar">
+        <div class="segmented" role="group" aria-label="시각화 종류">
+          <button id="modeHeat" type="button" aria-pressed="true">Heatmap</button>
+          <button id="modeScan" type="button" aria-pressed="false">Scanpath</button>
+          <button id="modeBoth" type="button" aria-pressed="false">겹쳐 보기</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label for="previewCondition">조건</label>
+          <select id="previewCondition"></select>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label for="previewSubject">참가자</label>
+          <select id="previewSubject"></select>
+        </div>
+        <span class="sub" style="margin-left:auto;font-size:11px;color:#6b6a66" id="canvasMeta">—</span>
+      </div>
+      <div class="canvas-shell">
+        <canvas id="gazeCanvas" width="1200" height="675" aria-label="시선 히트맵과 스캔패스 미리보기"></canvas>
+      </div>
+      <div class="canvas-caption">
+        <div class="legend" id="canvasLegend">
+          <span><i style="background:#D97757"></i>응시 밀도</span>
+          <span><i style="background:#141413"></i>도약 경로</span>
+          <span><i style="background:rgba(217,119,87,.18);border:1px solid #D97757"></i>AOI 영역</span>
+        </div>
+        <span>합성 좌표 · 1920×1080 기준</span>
+      </div>
+    </article>
+  </section>
+
+  <!-- downloads -------------------------------------------------------- -->
+  <section class="wrap" id="downloads">
+    <div class="section-head">
+      <h2>결과 내보내기</h2>
+      <p>모든 계산은 이 브라우저에서 끝났습니다. 아래 파일만 내려받으면 됩니다.</p>
+    </div>
+    <div class="download-grid">
+      <div class="download">
+        <h4>참가자별 지표 · CSV</h4>
+        <p>Excel에서 바로 열리는 UTF-8(BOM) CSV. 응시·도약·AOI 지표 포함.</p>
+        <button class="btn secondary small" id="dlCsv" type="button" disabled>CSV 다운로드</button>
+      </div>
+      <div class="download">
+        <h4>전체 보고서 · JSON</h4>
+        <p>품질·설정·세그먼트 요약·조건통계를 담은 기계 판독용 보고서.</p>
+        <button class="btn secondary small" id="dlJson" type="button" disabled>JSON 다운로드</button>
+      </div>
+      <div class="download">
+        <h4>Python 엔진 연계</h4>
+        <p>같은 정의를 Python으로 재현합니다. 대용량·배치 분석은 엔진으로.</p>
+        <a class="btn secondary small" href="#python">엔진 보기</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- python ----------------------------------------------------------- -->
+  <section class="wrap" id="python">
+    <div class="section-head">
+      <h2>Python 엔진으로 이어서</h2>
+      <span class="count">GAZERA Core 0.1.0</span>
+      <p>웹은 미리보기, 최종 보고서는 엔진으로. 정의는 동일합니다.</p>
+    </div>
+    <div class="docs">
+      <div>
+        <div class="code-block" role="img" aria-label="Python 설치 및 실행 예시">
+<span class="c"># 1) 설치</span>
+pip install -e .
+<span class="c"># 2) 합성 데모 생성 (도시숲 vs 도심 가로)</span>
+python -m gazera_core demo --out demo.tsv
+<span class="c"># 3) 분석 → Excel 다중 시트 · JSON · CSV</span>
+python -m gazera_core analyze demo.tsv --out results
+<span class="c"># 4) 로컬 API</span>
+uvicorn api.server:app --port 8000
+        </div>
+        <p class="table-note" style="margin-top:10px">
+          저장소 구조: <code>gazera_core/</code> (loader · cleaner · ivt · metrics · stats · exporter · synthetic · pipeline),
+          <code>api/server.py</code>, <code>tests/</code>.
+        </p>
+      </div>
+      <ul class="doc-list">
+        <li><b>loader</b><span>인코딩·구분자·머리말 자동 감지, 컬럼 자동/수동 매핑 <em>(CSV/TSV만)</em></span></li>
+        <li><b>cleaner</b><span>유효 시선 비율 · 추정 Hz · 결측률 · 시간 단조성 · 화면 밖 좌표 검사</span></li>
+        <li><b>ivt</b><span>공개 문헌 기반 I-VT. 화면 기하로 px→deg 환산 후 응시/도약 분류</span></li>
+        <li><b>metrics</b><span>응시 횟수·시간, 도약 빈도·진폭·속도, AOI 체류·방문·TTFF</span></li>
+        <li><b>stats</b><span>정규성 검정 후 t-test / Mann-Whitney / Wilcoxon, 효과크기, Holm 보정</span></li>
+        <li><b>exporter</b><span>Excel 다중 시트 · CSV · JSON (API·웹과 같은 스키마)</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- license ---------------------------------------------------------- -->
+  <section class="wrap" id="license">
+    <div class="section-head">
+      <h2>클린룸 · 라이선스</h2>
+      <span class="count">MIT</span>
+      <p>저작권·상표권·특허 침해 우려 없이 독립 구현했습니다.</p>
+    </div>
+    <div class="grid">
+      <article class="card span-6">
+        <h3 class="card-title">무엇을 하지 않았나</h3>
+        <ul class="warnings" style="margin-top:10px">
+          <li>벤더 SDK · DLL · 설치 파일 · 전용 바이너리 포맷 사용 없음</li>
+          <li>벤더 공식 샘플 파일 재배포 없음</li>
+          <li>로고 · 스크린샷 · 고유 UI 카피 없음</li>
+          <li>비공개 포맷 역공학 코드 없음</li>
+        </ul>
+      </article>
+      <article class="card span-6">
+        <h3 class="card-title">어떻게 독립 구현했나</h3>
+        <p class="card-desc" style="margin-top:8px;font-size:13px;line-height:1.7">
+          표준 구분자 텍스트(CSV/TSV)만 읽는 벤더 중립 어댑터를 두고, I-VT 분류는
+          공개 논문(Salvucci &amp; Goldberg, 2000)을 근거로 자체 작성했습니다.
+          데모·테스트 데이터는 100% 자체 생성한 합성 자료이며 실제 피험자 정보가 없습니다.
+          컬럼명은 자동 매핑을 위한 패턴으로만 쓰이고, 어떤 이름이든 수동 매핑할 수 있습니다.
+        </p>
+      </article>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer" id="footer">
+  <div class="wrap">
+    <div class="footer-top">
+      <div>
+        <div style="font-weight:600;color:#141413;letter-spacing:.14em;font-size:12px">GAZERA</div>
+        <div style="margin-top:4px">Intelligent Eye-Tracking Data Analytics · Research Software by HEL Lab</div>
+      </div>
+      <div class="platforms" aria-label="FEI · HEL Lab 4대 플랫폼">
+        <a class="platform" href="https://sunbear5020.github.io/forest-healing-prototype/" title="숲결 — 산림치유 프로토타입">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 21v-7" stroke="#141413" stroke-width="1.4"/><path d="M12 3c3.5 3 5 6 5 8.5A5 5 0 0 1 12 16a5 5 0 0 1-5-4.5C7 9 8.5 6 12 3Z" fill="#5C6B5A"/></svg>
+          </span>숲결
+        </a>
+        <span class="platform" title="HEARTMETRIC — In Design">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="4" fill="#141413"/><path d="M6 12h2.4l1.4-3 2 6 1.6-3H18" stroke="#D97757" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>HEARTMETRIC
+        </span>
+        <span class="platform" title="OLFACTRA — In Design">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.6 19 7.8v8.4L12 20.4 5 16.2V7.8L12 3.6Z" stroke="#141413" stroke-width="1.3"/><circle cx="12" cy="12" r="2.2" fill="#D97757"/><circle cx="12" cy="3.6" r="1.2" fill="#141413"/><circle cx="19" cy="16.2" r="1.2" fill="#141413"/><circle cx="5" cy="16.2" r="1.2" fill="#141413"/></svg>
+          </span>OLFACTRA
+        </span>
+        <span class="platform active" title="GAZERA — 현재 페이지">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M2.5 12s3.6-6.2 9.5-6.2S21.5 12 21.5 12s-3.6 6.2-9.5 6.2S2.5 12 2.5 12Z" stroke="#141413" stroke-width="1.4"/><circle cx="12" cy="12" r="3.1" fill="#D97757"/></svg>
+          </span>GAZERA
+        </span>
+      </div>
+    </div>
+
+    <div class="footer-legal">
+      <strong>GAZERA</strong> is an independent open-source project developed by
+      <strong>FEI · HEL Lab (Gyeongsang National University)</strong> under the MIT License.
+      It is not affiliated with, endorsed by, or sponsored by Tobii AB.
+      All product names and trademarks belong to their respective owners.<br>
+      GAZERA는 경상국립대학교 FEI · HEL 연구실이 MIT 라이선스로 개발한 독립 오픈소스
+      프로젝트이며, Tobii AB와 제휴·후원·보증 관계가 없습니다. 모든 제품명과 상표는 각 소유자에게 있습니다.
+    </div>
+    <div class="footer-bottom">
+      <span>MIT License · Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University</span>
+      <span>v0.1.0 · GAZERA Core · <a href="https://github.com/sunbear5020" style="color:inherit;text-decoration:none;border-bottom:1px solid #c9c5b8">sunbear5020</a></span>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
