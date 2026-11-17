@@ -498,6 +498,41 @@
       group.indices.push(samples.length - 1);
     }
 
+    // linear interpolation of very short coordinate gaps (<= 3 samples, <= 40 ms),
+    // mirroring cleaner.clean_gaze() in the Python engine
+    let interpolated = 0;
+    for (const group of groups.values()) {
+      const gidx = group.indices;
+      let i = 0;
+      while (i < gidx.length) {
+        const s = samples[gidx[i]];
+        const broken = !Number.isFinite(s.x) || !Number.isFinite(s.y);
+        if (!broken) { i += 1; continue; }
+        let j = i;
+        while (j < gidx.length) {
+          const q = samples[gidx[j]];
+          if (Number.isFinite(q.x) && Number.isFinite(q.y)) break;
+          j += 1;
+        }
+        const prev = i > 0 ? samples[gidx[i - 1]] : null;
+        const next = j < gidx.length ? samples[gidx[j]] : null;
+        const runLen = j - i;
+        const span = prev && next ? next.t - prev.t : Infinity;
+        if (prev && next && runLen <= 3 && span <= 40) {
+          for (let k = i; k < j; k++) {
+            const target = samples[gidx[k]];
+            const f = (target.t - prev.t) / (next.t - prev.t || 1);
+            target.x = prev.x + (next.x - prev.x) * f;
+            target.y = prev.y + (next.y - prev.y) * f;
+            target.valid = true;
+            target.interpolated = true;
+            interpolated += 1;
+          }
+        }
+        i = j;
+      }
+    }
+
     // rebase each recording to 0 ms
     for (const group of groups.values()) {
       let min = Infinity;
@@ -514,6 +549,7 @@
       groups: Array.from(groups.values()),
       screen: { w: screenW, h: screenH },
       unit,
+      interpolated,
       validityColumns: validCols.map((i) => columns[i]),
     };
   }
@@ -560,6 +596,7 @@
     else if (hz < 30) warnings.push(`샘플링이 낮습니다 (${hz.toFixed(1)} Hz). 짧은 응시가 합쳐질 수 있습니다.`);
     if (missing / samples.length > 0.1) warnings.push(`좌표 결측이 ${pct(missing / samples.length)}입니다.`);
     if (frame.validityColumns.length === 0) warnings.push('유효성 열을 찾지 못해 좌표 존재 여부로 유효 시선을 판정했습니다.');
+    if (frame.interpolated) warnings.push(`짧은 결측 ${frame.interpolated.toLocaleString('ko-KR')}개 샘플을 선형 보간했습니다 (≤3샘플·≤40ms).`);
     return {
       rows: samples.length,
       recordings: frame.groups.length,
@@ -832,10 +869,20 @@
     const picks = wanted
       .map((key) => ({ key, col: state.mapping[key] }))
       .filter((p) => p.col && columns.includes(p.col));
-    const head = picks.map((p) => `<th>${FIELD_BY_KEY[p.key] ? FIELD_BY_KEY[p.key].label : p.col}</th>`).join('');
+    const head = picks
+      .map((p) => `<th>${p.key === 'timestamp' ? '시각 (ms)' : FIELD_BY_KEY[p.key] ? FIELD_BY_KEY[p.key].label : p.col}</th>`)
+      .join('');
+    const factor = state.frame && state.frame.unit === 'us' ? 0.001 : state.frame && state.frame.unit === 's' ? 1000 : 1;
     const body = rows
       .slice(0, 4)
-      .map((r) => `<tr>${picks.map((p) => `<td>${String(r[columns.indexOf(p.col)] ?? '').slice(0, 18) || '—'}</td>`).join('')}</tr>`)
+      .map((r) => `<tr>${picks.map((p) => {
+        const raw = r[columns.indexOf(p.col)];
+        if (p.key === 'timestamp') {
+          const t = num(raw);
+          return `<td>${Number.isFinite(t) ? Math.round(t * factor).toLocaleString('ko-KR') : '—'}</td>`;
+        }
+        return `<td>${String(raw ?? '').slice(0, 18) || '—'}</td>`;
+      }).join('')}</tr>`)
       .join('');
     table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
   }
@@ -1053,11 +1100,11 @@
     // cream → bronze → deep bronze, with alpha
     const stops = [
       [0.0, [217, 119, 87, 0]],
-      [0.25, [236, 194, 158, 70]],
-      [0.5, [225, 150, 110, 120]],
-      [0.75, [198, 100, 62, 165]],
-      [0.92, [170, 72, 40, 195]],
-      [1.0, [150, 55, 28, 210]],
+      [0.25, [236, 190, 152, 95]],
+      [0.5, [224, 146, 105, 160]],
+      [0.75, [196, 96, 58, 200]],
+      [0.92, [168, 70, 38, 222]],
+      [1.0, [148, 52, 26, 235]],
     ];
     for (let i = 1; i < stops.length; i++) {
       if (t <= stops[i][0]) {
@@ -1148,7 +1195,7 @@
       const data = img.data;
       let max = 1;
       for (let p = 0; p < data.length; p += 4) max = Math.max(max, data[p]);
-      const scale = 1 / Math.max(1, max * 0.85);
+      const scale = 1 / Math.max(1, max * 0.62);
       const colorized = ctx.createImageData(W, H);
       const out = colorized.data;
       for (let p = 0; p < data.length; p += 4) {
