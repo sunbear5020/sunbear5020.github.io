@@ -344,6 +344,7 @@
     const used = new Set();
     const mapping = {};
     for (const field of FIELDS) {
+      if (field.key === 'validity') continue; // auto: use every validity column
       for (const pattern of field.patterns) {
         let found = null;
         for (let i = 0; i < norm.length; i++) {
@@ -818,6 +819,27 @@
     }
   }
 
+  function renderPreview() {
+    const wrap = $('previewWrap');
+    const table = $('previewTable');
+    if (!state.table) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    const { columns, rows } = state.table;
+    const wanted = ['timestamp', 'gaze_x', 'gaze_y', 'subject', 'condition'];
+    const picks = wanted
+      .map((key) => ({ key, col: state.mapping[key] }))
+      .filter((p) => p.col && columns.includes(p.col));
+    const head = picks.map((p) => `<th>${FIELD_BY_KEY[p.key] ? FIELD_BY_KEY[p.key].label : p.col}</th>`).join('');
+    const body = rows
+      .slice(0, 4)
+      .map((r) => `<tr>${picks.map((p) => `<td>${String(r[columns.indexOf(p.col)] ?? '').slice(0, 18) || '—'}</td>`).join('')}</tr>`)
+      .join('');
+    table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  }
+
   function renderQuality() {
     const q = state.quality;
     if (!q) return;
@@ -850,6 +872,7 @@
     ];
     if (q) bits.push(`<span>${q.rows.toLocaleString('ko-KR')}행 · ${q.recordings}개 recording</span>`);
     meta.innerHTML = bits.join('');
+    renderPreview();
   }
 
   function readAois() {
@@ -991,7 +1014,7 @@
         <td>${m.label}</td>
         <td class="num">${fmt(mean(va), m.digits)}${m.unit || ''}</td>
         <td class="num">${fmt(mean(vb), m.digits)}${m.unit || ''}</td>
-        <td class="num ${Math.abs(d) >= 0.8 ? 'pos' : ''}">${Number.isFinite(d) ? d.toFixed(2) : '—'}</td>
+        <td class="num ${Math.abs(d) >= 0.8 ? 'strong' : ''}">${Number.isFinite(d) ? d.toFixed(2) : '—'}</td>
       </tr>`;
     });
     tbody.innerHTML = cells.join('');
@@ -1030,11 +1053,11 @@
     // cream → bronze → deep bronze, with alpha
     const stops = [
       [0.0, [217, 119, 87, 0]],
-      [0.18, [232, 178, 126, 90]],
-      [0.42, [217, 119, 87, 155]],
-      [0.68, [180, 85, 47, 205]],
-      [0.88, [140, 47, 18, 235]],
-      [1.0, [90, 26, 8, 250]],
+      [0.25, [236, 194, 158, 70]],
+      [0.5, [225, 150, 110, 120]],
+      [0.75, [198, 100, 62, 165]],
+      [0.92, [170, 72, 40, 195]],
+      [1.0, [150, 55, 28, 210]],
     ];
     for (let i = 1; i < stops.length; i++) {
       if (t <= stops[i][0]) {
@@ -1095,24 +1118,6 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // AOI boxes
-    const aois = state.analysis.aois;
-    ctx.font = '600 12px Inter, sans-serif';
-    for (const aoi of aois) {
-      const x = aoi.x * W, y = aoi.y * H, w = aoi.w * W, h = aoi.h * H;
-      ctx.save();
-      ctx.fillStyle = 'rgba(217,119,87,0.055)';
-      ctx.strokeStyle = 'rgba(217,119,87,0.5)';
-      ctx.setLineDash([5, 4]);
-      ctx.lineWidth = 1;
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(180,85,47,0.85)';
-      ctx.fillText(aoi.name, x + 8, y + 18);
-      ctx.restore();
-    }
-
     const idx = group.indices;
 
     if (state.mode === 'heat' || state.mode === 'both') {
@@ -1123,7 +1128,7 @@
       octx.fillStyle = '#000';
       octx.fillRect(0, 0, W, H);
       octx.globalCompositeOperation = 'lighter';
-      const radius = Math.max(38, W * 0.055);
+      const radius = Math.max(30, W * 0.042);
       for (const i of idx) {
         const s = frame.samples[i];
         if (!s.valid) continue;
@@ -1131,8 +1136,8 @@
         const gy = s.y * sy;
         if (gx < -radius || gy < -radius || gx > W + radius || gy > H + radius) continue;
         const g = octx.createRadialGradient(gx, gy, 0, gx, gy, radius);
-        g.addColorStop(0, 'rgba(255,255,255,0.055)');
-        g.addColorStop(0.6, 'rgba(120,120,120,0.03)');
+        g.addColorStop(0, 'rgba(255,255,255,0.028)');
+        g.addColorStop(0.55, 'rgba(110,110,110,0.014)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
         octx.fillStyle = g;
         octx.beginPath();
@@ -1143,7 +1148,7 @@
       const data = img.data;
       let max = 1;
       for (let p = 0; p < data.length; p += 4) max = Math.max(max, data[p]);
-      const scale = 1 / Math.max(1, max * 0.72);
+      const scale = 1 / Math.max(1, max * 0.85);
       const colorized = ctx.createImageData(W, H);
       const out = colorized.data;
       for (let p = 0; p < data.length; p += 4) {
@@ -1159,9 +1164,27 @@
       tmp.width = W;
       tmp.height = H;
       tmp.getContext('2d').putImageData(colorized, 0, 0);
-      ctx.globalAlpha = 0.92;
+      ctx.globalAlpha = 0.9;
       ctx.drawImage(tmp, 0, 0);
       ctx.globalAlpha = 1;
+    }
+
+    // AOI boxes on top of the heat so the layout stays readable
+    const aois = state.analysis.aois;
+    ctx.font = '600 12px Inter, sans-serif';
+    for (const aoi of aois) {
+      const x = aoi.x * W, y = aoi.y * H, w = aoi.w * W, h = aoi.h * H;
+      ctx.save();
+      ctx.fillStyle = 'rgba(217,119,87,0.05)';
+      ctx.strokeStyle = 'rgba(180,85,47,0.55)';
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(140,60,30,0.9)';
+      ctx.fillText(aoi.name, x + 8, y + 18);
+      ctx.restore();
     }
 
     if (state.mode === 'scan' || state.mode === 'both') {
@@ -1206,6 +1229,7 @@
 
     const fixCount = state.analysis.segments.filter((s) => s.group === group.key && s.type === 'fixation').length;
     $('canvasMeta').textContent = `${group.condition || '—'} · ${group.subject || 'all'} · ${fmt(group.duration || 0, 1)}초 · 응시 ${fixCount}회`;
+    $('canvasScreen').textContent = `합성 좌표 · ${Math.round(frame.screen.w)}×${Math.round(frame.screen.h)} 기준`;
   }
 
   function renderPreviewSelectors() {
@@ -1459,6 +1483,7 @@
       state.mapping = {};
       state.fileName = null;
       renderFileMeta();
+      $('previewWrap').classList.add('hidden');
       $('mappingGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">데이터를 불러오면 매핑 표가 나타납니다.</div>';
       $('mapStatus').textContent = '대기';
       $('statRow').querySelectorAll('.v').forEach((el) => (el.textContent = '—'));

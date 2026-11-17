@@ -98,6 +98,11 @@
         <div class="file-meta" id="fileMeta">
           <span class="name">아직 데이터가 없습니다</span>
         </div>
+
+        <div class="preview-wrap hidden" id="previewWrap">
+          <div class="preview-head"><span>데이터 미리보기</span><span>앞 4행</span></div>
+          <div class="table-wrap"><table class="data mini" id="previewTable"></table></div>
+        </div>
       </article>
 
       <!-- 02 mapping ---------------------------------------------------- -->
@@ -217,6 +222,8 @@
             <tbody><tr><td colspan="6" style="color:#6b6a66">분석을 실행하면 표가 채워집니다.</td></tr></tbody>
           </table>
         </div>
+        <p class="table-note">응시 구간의 중심이 영역에 들어간 시간의 합이며, 비율은 recording 전체 응시시간 대비입니다.
+        TTFF는 recording 시작부터 영역 첫 응시까지의 시간입니다.</p>
       </article>
 
       <article class="card span-5">
@@ -289,7 +296,7 @@
           <span><i style="background:#141413"></i>도약 경로</span>
           <span><i style="background:rgba(217,119,87,.18);border:1px solid #D97757"></i>AOI 영역</span>
         </div>
-        <span>합성 좌표 · 1920×1080 기준</span>
+        <span id="canvasScreen">합성 좌표 · 1920×1080 기준</span>
       </div>
     </article>
   </section>
@@ -328,16 +335,14 @@
     </div>
     <div class="docs">
       <div>
-        <div class="code-block" role="img" aria-label="Python 설치 및 실행 예시">
-<span class="c"># 1) 설치</span>
+        <pre class="code-block" aria-label="Python 설치 및 실행 예시"><code><span class="c"># 1) 설치</span>
 pip install -e .
-<span class="c"># 2) 합성 데모 생성 (도시숲 vs 도심 가로)</span>
+<span class="c"># 2) 합성 데모 데이터 생성</span>
 python -m gazera_core demo --out demo.tsv
-<span class="c"># 3) 분석 → Excel 다중 시트 · JSON · CSV</span>
+<span class="c"># 3) 분석 → Excel · JSON · CSV</span>
 python -m gazera_core analyze demo.tsv --out results
 <span class="c"># 4) 로컬 API</span>
-uvicorn api.server:app --port 8000
-        </div>
+uvicorn api.server:app --port 8000</code></pre>
         <p class="table-note" style="margin-top:10px">
           저장소 구조: <code>gazera_core/</code> (loader · cleaner · ivt · metrics · stats · exporter · synthetic · pipeline),
           <code>api/server.py</code>, <code>tests/</code>.
