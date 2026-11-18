@@ -874,7 +874,7 @@
     var cssH = window.innerWidth < 700 ? 320 : 420;
     var s = setupCanvas(canvas, cssH);
     var ctx = s.ctx, W = s.w, H = s.h;
-    var pad = { l: 52, r: 16, t: 18, b: 38 };
+    var pad = { l: 64, r: 16, t: 18, b: 38 };
     var minW = 96, maxW = 260;
     var x = function (mw) { return pad.l + (clamp(mw, minW, maxW) - minW) / (maxW - minW) * (W - pad.l - pad.r); };
     var y = function (v) { return pad.t + (1 - clamp(v, 0, 1)) * (H - pad.t - pad.b); };
@@ -892,7 +892,7 @@
     [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
       var yy = y(v);
       ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(W - pad.r, yy); ctx.stroke();
-      ctx.fillText(v.toFixed(2), pad.l - 8, yy + 3);
+      ctx.fillText(v.toFixed(2), pad.l - 10, yy + 3);
     });
     ctx.textAlign = "left";
     [100, 136, 170, 204, 238].forEach(function (mw) {
@@ -917,11 +917,11 @@
     ctx.fillText("분자량 (g/mol) →", pad.l + (W - pad.l - pad.r) / 2, H - 6);
     ctx.textAlign = "left";
     ctx.save();
-    ctx.translate(17, H / 2 + 34);
+    ctx.translate(14, H / 2 + 34);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillText("휘발성 (1 = 빠름) →", 0, 0);
+    ctx.fillText("휘발성 (1=빠름) →", 0, 0);
     ctx.restore();
     ctx.textBaseline = "alphabetic";
 
