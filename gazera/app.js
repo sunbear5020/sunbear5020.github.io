@@ -1407,8 +1407,13 @@
       renderFileMeta();
       runAnalysis();
     } catch (err) {
-      toast(err.message || '데이터를 해석할 수 없습니다.');
+      // required columns not chosen yet: keep the page calm instead of toasting
+      state.frame = null;
+      state.quality = null;
       $('runBtn').disabled = true;
+      $('mapStatus').textContent = '시선 X · Y를 지정하면 분석됩니다';
+      ['qRows', 'qValid', 'qHz', 'qMissing'].forEach((id) => { $(id).textContent = '—'; });
+      $('warningList').innerHTML = '';
     }
   }
 
