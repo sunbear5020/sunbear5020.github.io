@@ -2164,10 +2164,11 @@ window.OLFACTRA_DATA = {
     "minimal": 0.8
    },
    "materials": {
-    "alpha-pinene": 34,
-    "limonene": 18,
-    "sabinene": 16,
-    "beta-caryophyllene": 18,
+    "alpha-pinene": 30,
+    "limonene": 16,
+    "sabinene": 14,
+    "linalool": 10,
+    "beta-caryophyllene": 16,
     "benzyl benzoate": 14
    },
    "product_hint": "reed_diffuser",

@@ -396,7 +396,7 @@
         '<p class="result-kicker">' + (hasScore ? "추천 " + (i + 1) : "균형 추천 " + (i + 1)) + " · " + esc(pt ? pt.name_ko : a.product_hint) + "</p>" +
         "<h3>" + esc(a.name_ko) + "<span>" + esc(a.name_en) + "</span></h3>" +
         '<p class="result-tagline">' + esc(a.tagline) + "</p></div>" +
-        '<div class="score"><b>' + scoreText + '</b><span>' + (hasScore ? "match" : "harmony") + '</span>' +
+        '<div class="score"><b>' + scoreText + '</b><span>' + (hasScore ? "fit" : "harmony") + '</span>' +
         '<div class="score-bar"><i style="width:' + (hasScore ? p.score.toFixed(0) : "0") + '%"></i></div></div></div>' +
         notePyramidHtml(p.report.balance) +
         '<ul class="mat-list">' + rows + "</ul>" +
