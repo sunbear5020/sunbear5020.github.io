@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OLFACTRA — The Intelligence of Scent · FEI · HEL Lab</title>
+<meta name="description" content="OLFACTRA는 공개 분자·향조 데이터로 향 프로필을 추천하고(OLFACTRA ID), DIY 배합비와 안전 상한을 계산하며(STUDIO), 고대부터 이어진 향의 기원(ATLAS)과 향료 분자(MOLECULE)를 탐색하는 오픈소스 워크벤치입니다. MIT License · FEI · HEL Lab, Gyeongsang National University.">
+<meta name="theme-color" content="#FAF9F5">
+<meta property="og:type" content="website">
+<meta property="og:title" content="OLFACTRA — The Intelligence of Scent">
+<meta property="og:description" content="공개 데이터 기반 향 추천 · 배합 계산 · 향의 역사 · 분자 탐색. 100% 브라우저 실행, MIT 오픈소스.">
+<meta property="og:url" content="https://sunbear5020.github.io/olfactra/">
+<meta property="og:locale" content="ko_KR">
+<link rel="stylesheet" href="styles.css?v=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141413'/%3E%3Cpath d='M16 5.5 25.5 11v10L16 26.5 6.5 21V11Z' fill='none' stroke='%23FAF9F5' stroke-width='1.4'/%3E%3Ccircle cx='16' cy='16' r='3.1' fill='%23D97757'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top" aria-label="OLFACTRA 홈">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 28 28" fill="none">
+          <path d="M14 2.6 24.4 8.6v11.2L14 25.8 3.6 19.8V8.6Z" stroke="#141413" stroke-width="1.4"/>
+          <circle cx="14" cy="14" r="3.2" fill="#D97757"/>
+          <circle cx="14" cy="2.6" r="1.5" fill="#141413"/>
+          <circle cx="24.4" cy="8.6" r="1.5" fill="#141413"/>
+          <circle cx="24.4" cy="19.8" r="1.5" fill="#141413"/>
+          <circle cx="14" cy="25.8" r="1.5" fill="#141413"/>
+          <circle cx="3.6" cy="19.8" r="1.5" fill="#141413"/>
+          <circle cx="3.6" cy="8.6" r="1.5" fill="#141413"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">OLFACTRA</span>
+        <span class="brand-sub">The Intelligence of Scent · HEL Lab</span>
+      </span>
+    </a>
+    <nav class="nav" id="nav" aria-label="주요 모듈">
+      <button type="button" class="nav-btn is-active" data-tab="id">ID</button>
+      <button type="button" class="nav-btn" data-tab="studio">STUDIO</button>
+      <button type="button" class="nav-btn" data-tab="atlas">ATLAS</button>
+      <button type="button" class="nav-btn" data-tab="molecule">MOLECULE</button>
+    </nav>
+    <span class="header-pill"><b>MIT</b> · v<span data-version>0.1.0</span> Core</span>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Clean-room · public data · open source</p>
+      <h1>향을 데이터로 읽고,<br>배합으로 <em>확인합니다.</em></h1>
+      <p class="lead">
+        OLFACTRA는 공개된 분자·식물·역사 자료로 <b>후보 아코드</b>를 제안하고,
+        원료별 g과 mL, 완성품 농도와 <b>안전 상한</b>을 계산합니다.
+        AI가 향을 예측하는 것이 아니라, 조향과 GC-MS 검증을 돕는 도구입니다.
+        파일은 <b>브라우저 안에서만</b> 처리되며 어디에도 전송되지 않습니다.
+      </p>
+      <div class="hero-badges">
+        <span class="badge"><span class="dot"></span>100% 브라우저 실행</span>
+        <span class="badge plain"><span data-count="molecules">43</span>개 공개 분자</span>
+        <span class="badge plain"><span data-count="atlas">22</span>개 향의 기원</span>
+        <span class="badge plain">클린룸 MIT 라이선스</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ID ================= -->
+  <section class="panel" id="panel-id" aria-labelledby="h-id">
+    <div class="wrap">
+      <div class="panel-head">
+        <span class="module-tag">OLFACTRA ID</span>
+        <h2 id="h-id">맞춤 향 프로필</h2>
+        <p>기분·계절·공간·스타일을 고르면 탑/미들/베이스 구조를 갖춘 아코드 3개를 제안합니다.
+          왜 골랐는지, 어떤 안전 주의가 붙는지 함께 보여 줍니다.</p>
+      </div>
+      <div class="grid">
+        <article class="card span-5">
+          <div class="card-head">
+            <span class="card-num">01</span>
+            <div>
+              <h3 class="card-title">조건 선택</h3>
+              <p class="card-desc">네 가지 중 원하는 것만 골라도 됩니다.</p>
+            </div>
+          </div>
+          <div class="field-group" id="id-controls"></div>
+          <div class="row">
+            <button type="button" class="btn primary" id="id-run">아코드 제안 받기</button>
+            <button type="button" class="btn ghost" id="id-reset">초기화</button>
+          </div>
+          <p class="hint">점수는 태그 일치·향조 적합도·노트 배치의 합으로 계산한 <b>순위 지표</b>입니다.
+            절대적 '향의 좋음'이 아닙니다.</p>
+        </article>
+        <div class="span-7">
+          <div id="id-results" class="stack" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STUDIO ================= -->
+  <section class="panel" id="panel-studio" hidden aria-labelledby="h-studio">
+    <div class="wrap">
+      <div class="panel-head">
+        <span class="module-tag">OLFACTRA STUDIO</span>
+        <h2 id="h-studio">DIY 배합 계산기</h2>
+        <p>제품 유형·총 용량·부향률과 원료 비중을 넣으면 g/mL·완성품 농도·안전 상한 판정을 계산합니다.
+          레시피는 CSV·JSON으로 저장할 수 있습니다.</p>
+      </div>
+      <div class="grid">
+        <article class="card span-4">
+          <div class="card-head">
+            <span class="card-num">02</span>
+            <div><h3 class="card-title">제형 설정</h3>
+              <p class="card-desc">부향률은 <b>완성품 대비 향 농축액</b> 비율입니다.</p></div>
+          </div>
+          <label class="field">
+            <span class="field-label">제품 유형</span>
+            <select id="studio-product" class="input"></select>
+            <span class="field-note" id="studio-product-note"></span>
+          </label>
+          <label class="field">
+            <span class="field-label">총 용량 <output id="studio-volume-out">50</output> mL</span>
+            <input type="range" id="studio-volume" min="10" max="500" step="5" value="50">
+          </label>
+          <label class="field">
+            <span class="field-label">부향률 <output id="studio-load-out">20</output> %</span>
+            <input type="range" id="studio-load" min="0.5" max="35" step="0.5" value="20">
+            <span class="field-note" id="studio-load-note"></span>
+          </label>
+
+          <div class="divider"></div>
+
+          <div class="card-head compact">
+            <div><h3 class="card-title">배합 편집</h3>
+              <p class="card-desc" id="studio-source">불러온 아코드: 숲의 호흡</p></div>
+          </div>
+          <div id="studio-items" class="items"></div>
+          <div class="row tight">
+            <select id="studio-add-select" class="input grow" aria-label="원료 추가"></select>
+            <button type="button" class="btn small" id="studio-add">추가</button>
+          </div>
+          <div class="row tight">
+            <button type="button" class="btn ghost small" id="studio-balance">100%로 정규화</button>
+            <button type="button" class="btn ghost small" id="studio-clear">비우기</button>
+          </div>
+          <p class="hint">합계가 100%가 아니어도 계산 시 자동 정규화되며, 화면에 원래 합계를 표시합니다.</p>
+        </article>
+
+        <article class="card span-8">
+          <div class="card-head">
+            <span class="card-num">03</span>
+            <div><h3 class="card-title">계산 결과</h3>
+              <p class="card-desc">판정은 완성품 무게 기준(w/w)이며, 노출 경로 계수를 함께 표시합니다.</p></div>
+          </div>
+          <div id="studio-summary" class="summary"></div>
+          <div class="table-wrap">
+            <table class="data-table" id="studio-table">
+              <thead>
+                <tr><th>원료</th><th>노트</th><th class="num">비중 %</th><th class="num">mL</th><th class="num">g</th>
+                  <th class="num">완성품 %</th><th class="num">상한 %</th><th>판정</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table compact" id="studio-carriers">
+              <thead><tr><th>캐리어</th><th>역할</th><th class="num">비율</th><th class="num">mL</th><th class="num">g</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="studio-safety" class="safety"></div>
+          <div class="row">
+            <button type="button" class="btn primary" id="studio-csv">CSV 다운로드</button>
+            <button type="button" class="btn" id="studio-json">JSON 다운로드</button>
+            <button type="button" class="btn ghost" id="studio-copy">레시피 복사</button>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ATLAS ================= -->
+  <section class="panel" id="panel-atlas" hidden aria-labelledby="h-atlas">
+    <div class="wrap">
+      <div class="panel-head">
+        <span class="module-tag">OLFACTRA ATLAS</span>
+        <h2 id="h-atlas">향의 기원 아카이브</h2>
+        <p>유향에서 편백까지, 공개 문헌으로 확인되는 범위에서 정리한 22개 항목.
+          전승에 불과한 이야기는 본문에 그렇게 표시했습니다.</p>
+      </div>
+      <div class="atlas-controls">
+        <input type="search" id="atlas-search" class="input" placeholder="유향, 편백, 몰약… 검색" aria-label="아카이브 검색">
+        <div class="chips inline" id="atlas-cats"></div>
+      </div>
+      <div id="atlas-timeline" class="timeline" aria-hidden="true"></div>
+      <div id="atlas-grid" class="atlas-grid"></div>
+      <div id="atlas-detail" class="atlas-detail" hidden></div>
+    </div>
+  </section>
+
+  <!-- ================= MOLECULE ================= -->
+  <section class="panel" id="panel-molecule" hidden aria-labelledby="h-molecule">
+    <div class="wrap">
+      <div class="panel-head">
+        <span class="module-tag">OLFACTRA MOLECULE</span>
+        <h2 id="h-molecule">분자 · 향조 지도</h2>
+        <p>가로축은 향조, 세로축은 휘발성(탑→베이스), 원 크기는 분자량입니다.
+          점을 누르면 구조·물성·유사 분자·조화 점수가 열립니다.</p>
+      </div>
+      <div class="grid">
+        <article class="card span-7">
+          <div class="canvas-wrap">
+            <canvas id="mol-map" role="img" aria-label="향료 분자 향조·휘발성 지도"></canvas>
+          </div>
+          <div class="legend" id="mol-legend"></div>
+        </article>
+        <article class="card span-5" id="mol-detail"></article>
+      </div>
+      <article class="card">
+        <div class="card-head">
+          <span class="card-num">04</span>
+          <div><h3 class="card-title">향조 × 노트 매트릭스</h3>
+            <p class="card-desc">셀의 숫자는 해당 향조(0.2 이상)와 노트를 가진 분자 수입니다. 셀을 누르면 지도에 표시됩니다.</p></div>
+        </div>
+        <div class="canvas-wrap matrix-wrap">
+          <canvas id="mol-matrix" role="img" aria-label="향조와 노트 교차 매트릭스"></canvas>
+        </div>
+      </article>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <p class="footer-title">OLFACTRA · The Intelligence of Scent</p>
+        <p class="footer-text">
+          경상국립대학교 환경산림과학부 산림환경자원학과 <b>FEI · HEL 인간환경연구실</b>이
+          MIT 라이선스로 개발한 독립 오픈소스 프로젝트입니다.<br>
+          <span class="mono">Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University</span>
+        </p>
+      </div>
+      <div>
+        <p class="footer-title">과학적 경계</p>
+        <p class="footer-text">
+          OLFACTRA는 공개 분자·향조 데이터로 <b>후보 조합을 제안</b>하며, 향을 완벽히 예측하지 않습니다.
+          제시된 수치는 조향·관능평가·GC-MS 실험 검증을 보조하는 출발점입니다.
+        </p>
+      </div>
+      <div>
+        <p class="footer-title">안전 경계</p>
+        <p class="footer-text">
+          실무 상한은 공개 가이드라인을 바탕으로 한 보수적 작업 기준이며, IFRA 인증이나 규제 판단이 아닙니다.
+          판매·배포 전에는 별도의 안전성 평가가 필요합니다. 상표·독점 포뮬러는 포함하지 않았습니다.
+        </p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span><a href="https://sunbear5020.github.io/hel-fei-site/">FEI · HEL 홈페이지</a></span>
+      <span class="mono">v<span data-version>0.1.0</span> · MIT</span>
+      <span><a href="https://github.com/sunbear5020/olfactra">GitHub</a></span>
+    </div>
+  </div>
+</footer>
+
+<script src="data.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
