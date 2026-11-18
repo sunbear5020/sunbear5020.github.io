@@ -8517,7 +8517,8 @@ window.OLFACTRA_DATA = {
      "alcohol": 0,
      "phenol": 0,
      "ether": 0,
-     "lactone": 0
+     "lactone": 0,
+     "relaxed_embedding": true
     }
    },
    "pose_default": "or5an1"

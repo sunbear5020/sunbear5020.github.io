@@ -675,6 +675,10 @@
         '<div class="m3-kv"><span>고리·회전가능 결합</span><b>' + c.props.rings + " · " + c.props.rotatable + "</b></div>" +
         '<div class="m3-kv"><span>작용기</span><b>' + (fg.join(" · ") || "탄화수소") + "</b></div>" +
         '<div class="m3-chips">' + chips + "</div>" +
+        (c.props.relaxed_embedding
+          ? '<p class="m3-warn">이 분자는 입체화학 제약을 풀고 임베딩했습니다(변형된 다환). ' +
+            "3D 모양은 그럴듯하지만 절대 입체배치가 SMILES와 다를 수 있습니다.</p>"
+          : "") +
         '<p class="m3-tiny">MMFF94s로 최적화한 단일 저에너지 컨포머입니다. 실제 분자는 여러 형태를 오가므로, ' +
         "이 좌표는 가능한 모양 하나이지 유일한 생체 활성 형태가 아닙니다.</p>";
       return;
