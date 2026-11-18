@@ -1587,7 +1587,8 @@
         cohens_d: round(row.d, 2),
         effect: row.effect,
         test: row.test,
-        p_value: round(row.p, 4),
+        // never report an exact 0 for a p-value: keep 3 significant digits below 1e-4
+        p_value: row.p > 0 && row.p < 0.0001 ? Number(row.p.toPrecision(3)) : round(row.p, 4),
         ci_low: round(row.ciLow, 2),
         ci_high: round(row.ciHigh, 2),
       })),
