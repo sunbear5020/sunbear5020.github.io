@@ -1104,7 +1104,7 @@
         <td class="${diffClass}">${pctText(row.pct, 1)}</td>
         <td>${fmt(row.d, 2)}</td>
         <td><span class="effect-tag ${dClass}">${row.effect}</span></td>
-        <td>${row.p < 0.0001 ? '&lt;0.0001' : row.p.toFixed(3)}</td>
+        <td>${row.p < 0.0001 ? '&lt;0.0001' : row.p < 0.001 ? '&lt;0.001' : row.p.toFixed(3)}</td>
         <td class="muted">${fmt(row.ciLow, 1)} … ${fmt(row.ciHigh, 1)}</td>
       </tr>`;
     }).join('');
