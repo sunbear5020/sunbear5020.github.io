@@ -971,6 +971,23 @@
     });
   }
 
+  function clearResults(message) {
+    state.analysis = null;
+    $('kpiGrid').innerHTML = '';
+    document.querySelector('#aoiTable tbody').innerHTML =
+      `<tr><td colspan="6" style="color:#6b6a66">${message || '분석을 실행하면 표가 채워집니다.'}</td></tr>`;
+    document.querySelector('#statsTable tbody').innerHTML = '<tr><td colspan="4" style="color:#6b6a66">—</td></tr>';
+    document.querySelector('#participantTable tbody').innerHTML = '<tr><td colspan="7" style="color:#6b6a66">—</td></tr>';
+    $('resultCount').textContent = '—';
+    $('resultSub').textContent = '데이터를 불러오고 컬럼을 확인하면 분석 결과가 나타납니다.';
+    $('dlCsv').disabled = true;
+    $('dlJson').disabled = true;
+    $('previewCondition').innerHTML = '';
+    $('previewSubject').innerHTML = '';
+    $('canvasMeta').textContent = '—';
+    drawCanvas();
+  }
+
   function renderKpis() {
     const grid = $('kpiGrid');
     if (!state.analysis) return;
@@ -1414,6 +1431,8 @@
       $('mapStatus').textContent = '시선 X · Y를 지정하면 분석됩니다';
       ['qRows', 'qValid', 'qHz', 'qMissing'].forEach((id) => { $(id).textContent = '—'; });
       $('warningList').innerHTML = '';
+      renderFileMeta();
+      clearResults('시선 X · Y 열을 지정하면 분석이 시작됩니다.');
     }
   }
 
