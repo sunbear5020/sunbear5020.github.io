@@ -85,11 +85,13 @@
   }
 
   /* ---------------------------------------------------------------- schema */
+  // Numeric measurements only. `activity` is a text label ("walk", "night"),
+  // kept out of the numeric table so it is never reported as missing.
   const METRIC_COLUMNS = [
     'sbp', 'dbp', 'hr', 'rmssd', 'sdnn', 'temp_c', 'humidity_pct',
-    'pm25', 'pm10', 'green_index', 'forest', 'activity', 'steps',
+    'pm25', 'pm10', 'green_index', 'forest', 'steps',
   ];
-  const STANDARD_COLUMNS = ['timestamp', 'source', 'condition', ...METRIC_COLUMNS, 'flags', 'notes'];
+  const STANDARD_COLUMNS = ['timestamp', 'source', 'condition', ...METRIC_COLUMNS, 'activity', 'flags', 'notes'];
 
   const ALIASES = {
     timestamp: ['timestamp', 'datetime', 'date time', 'date', 'time', 'start', 'startdate', 'start date',
@@ -169,7 +171,7 @@
   const PHYSIO_RANGES = {
     sbp: [60, 260], dbp: [30, 160], hr: [25, 220], rmssd: [1, 300], sdnn: [1, 400],
     temp_c: [-40, 55], humidity_pct: [0, 100], pm25: [0, 1000], pm10: [0, 1500],
-    green_index: [0, 1], forest: [0, 1], activity: [0, 300], steps: [0, 100000],
+    green_index: [0, 1], forest: [0, 1], steps: [0, 100000],
   };
 
   const METRIC_LABELS = {
@@ -258,6 +260,7 @@
     out.timestamp = parseTime(out.timestamp);
     out.condition = normalizeCondition(out.condition);
     METRIC_COLUMNS.forEach((column) => { out[column] = num(out[column]); });
+    out.activity = out.activity ? String(out.activity) : null;
     if (!out.source) out.source = 'upload';
     return out;
   }
@@ -400,6 +403,9 @@
   }
 
   /* --------------------------------------------------------------- cleaning */
+  // 12 h keeps a normal overnight pause out of the gap report; ABPM would use less.
+  const GAP_HOURS = 12;
+
   function cleanRows(input) {
     const rowsIn = input.length;
     const warnings = [];
@@ -467,7 +473,7 @@
     const gaps = [];
     for (let i = 1; i < rows.length; i += 1) {
       const hours = (rows[i].timestamp - rows[i - 1].timestamp) / 3600000;
-      if (hours >= 6) gaps.push({ from: fmtStamp(rows[i - 1].timestamp), to: fmtStamp(rows[i].timestamp), hours });
+      if (hours >= GAP_HOURS) gaps.push({ from: fmtStamp(rows[i - 1].timestamp), to: fmtStamp(rows[i].timestamp), hours });
     }
     const maxGap = rows.length > 1 ? Math.max(...rows.slice(1).map((r, i) => (r.timestamp - rows[i].timestamp) / 3600000)) : 0;
 
@@ -945,8 +951,8 @@
     // The same three deliberate faults as the Python generator, so the QC panel
     // has something real to report.
     if (rows.length >= 21) {
-      rows[5].sbp = 0; rows[5].dbp = 0;
-      rows[18].sbp = 78; rows[18].dbp = 96;
+      rows[2].sbp = 0; rows[2].dbp = 0;
+      rows[13].sbp = 78; rows[13].dbp = 96;
       const duplicate = { ...rows[30], timestamp: new Date(rows[30].timestamp.getTime() + 60000), notes: '중복 동기화' };
       rows.push(duplicate);
     }
@@ -1458,7 +1464,7 @@
 
   function loadDemo() {
     const rows = generateDemo();
-    const loaded = { rows, mapping: { timestamp: 'timestamp', condition: 'condition', sbp: 'sbp', dbp: 'dbp', hr: 'hr', rmssd: 'rmssd', sdnn: 'sdnn', pm25: 'pm25', temp_c: 'temp_c', green_index: 'green_index' }, unmapped: [], warnings: [], source: 'synthetic' };
+    const loaded = { rows, mapping: { timestamp: 'timestamp', condition: 'condition', sbp: 'sbp', dbp: 'dbp', hr: 'hr', rmssd: 'rmssd', sdnn: 'sdnn', pm25: 'pm25', temp_c: 'temp_c', green_index: 'green_index', activity: 'activity' }, unmapped: [], warnings: [], source: 'synthetic' };
     adopt(loaded, 'synthetic_demo_14d.csv');
     toast('합성 데모 14일 · 도시 가로 vs 산림치유를 계산했습니다');
   }
@@ -1603,6 +1609,7 @@
       series: rows.map((row) => {
         const item = { timestamp: fmtStamp(row.timestamp), condition: row.condition || undefined };
         METRIC_COLUMNS.forEach((key) => { if (Number.isFinite(row[key])) item[key] = round(row[key], 2); });
+        if (row.activity) item.activity = row.activity;
         if (row.flags) item.flags = row.flags;
         return item;
       }),
@@ -1621,6 +1628,9 @@
       lines.push(STANDARD_COLUMNS.map((column) => {
         if (column === 'timestamp') return escape(fmtStamp(row.timestamp));
         if (column === 'condition') return escape(row.condition || '');
+        if (column === 'activity' || column === 'notes' || column === 'source' || column === 'flags') {
+          return escape(row[column] || '');
+        }
         const value = row[column];
         return escape(Number.isFinite(value) ? Math.round(value * 100) / 100 : '');
       }).join(','));
