@@ -1908,24 +1908,28 @@
 
     // where the filter removed gaze: small hollow crosses on the stimulus
     if (excluded && excluded.size) {
-      const marks = [];
+      const path = new Path2D();
+      let count = 0;
       for (const i of idx) {
-        if (excluded.has(i)) marks.push(frame.samples[i]);
-        if (marks.length >= 1600) break;
-      }
-      ctx.save();
-      ctx.strokeStyle = 'rgba(20,20,19,0.35)';
-      ctx.lineWidth = 1;
-      for (const s of marks) {
+        if (!excluded.has(i)) continue;
+        const s = frame.samples[i];
         const x = s.x * sx;
         const y = s.y * sy;
-        ctx.beginPath();
-        ctx.moveTo(x - 2.4, y - 2.4);
-        ctx.lineTo(x + 2.4, y + 2.4);
-        ctx.moveTo(x + 2.4, y - 2.4);
-        ctx.lineTo(x - 2.4, y + 2.4);
-        ctx.stroke();
+        path.moveTo(x - 3, y - 3);
+        path.lineTo(x + 3, y + 3);
+        path.moveTo(x + 3, y - 3);
+        path.lineTo(x - 3, y + 3);
+        count += 1;
+        if (count >= 1600) break;
       }
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = 'rgba(20,20,19,0.45)';
+      ctx.stroke(path);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(250,249,245,0.95)';
+      ctx.stroke(path);
       ctx.restore();
     }
 
