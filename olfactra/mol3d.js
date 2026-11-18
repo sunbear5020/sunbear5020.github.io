@@ -23,7 +23,7 @@
   D.receptors.forEach(function (r) { REC[r.id] = r; });
 
   var ELEM = {
-    C: { color: "#DCD6C8", r: 1.70, name: "탄소" },
+    C: { color: "#E6E0D2", r: 1.70, name: "탄소" },
     N: { color: "#7C9CFF", r: 1.55, name: "질소" },
     O: { color: "#E2604A", r: 1.52, name: "산소" },
     S: { color: "#E3C05A", r: 1.80, name: "황" },
@@ -60,6 +60,7 @@
 
   var els = {};
   var m3LabelBoxes = [];
+  var m3DistanceBoxes = [];
   var onSelectExternal = null;
 
   /* ------------------------------------------------------------------ maths */
@@ -224,7 +225,7 @@
         drawBond(ctx, it.p1, it.p2, width, it.order, it.c1, it.c2, f);
       } else if (it.kind === "atom") {
         var e = ELEM[it.a.e] || ELEM_DEFAULT;
-        var r = Math.max(2.0, e.r * (boost ? 0.44 : 0.30) * cam.k * it.p.s);
+        var r = Math.max(2.0, e.r * (boost ? 0.50 : 0.30) * cam.k * it.p.s);
         if (boost) {
           ctx.beginPath();
           ctx.arc(it.p.x, it.p.y, r + 2.2, 0, Math.PI * 2);
@@ -333,7 +334,7 @@
     var zs = [];
     rec.helices.forEach(function (hel, hi) {
       var pts = hel.path;
-      for (var i = 0; i < pts.length; i += 2) {
+      for (var i = 0; i < pts.length; i++) {
         var pr = project(pts[i], cam, centre);
         zs.push(pr.z);
         items.push({ kind: "helixBead", z: pr.z, p: pr, hue: hi });
@@ -360,11 +361,11 @@
       var f = 0.35 + 0.65 * ((it.z - zmin) / Math.max(1, zmax - zmin));
       if (it.kind === "helixBead") {
         var col = helixColors[it.hue % helixColors.length];
-        var r = Math.max(2.5, 1.95 * cam.k * it.p.s);
+        var r = Math.max(2.2, 1.72 * cam.k * it.p.s);
         var grad = ctx.createRadialGradient(it.p.x - r * 0.4, it.p.y - r * 0.45, r * 0.15, it.p.x, it.p.y, r);
-        grad.addColorStop(0, rgba(shade(col, 40), 0.40 * f));
-        grad.addColorStop(0.62, rgba(col, 0.30 * f));
-        grad.addColorStop(1, rgba(shade(col, -75), 0.26 * f));
+        grad.addColorStop(0, rgba(shade(col, 45), 0.26 * f));
+        grad.addColorStop(0.60, rgba(col, 0.19 * f));
+        grad.addColorStop(1, rgba(shade(col, -80), 0.15 * f));
         ctx.beginPath();
         ctx.arc(it.p.x, it.p.y, r, 0, Math.PI * 2);
         ctx.fillStyle = grad;
@@ -443,7 +444,7 @@
     var byLabel = {};
     rec.residues.forEach(function (r) { byLabel[r.label] = r; });
 
-    lit.pose.interactions.forEach(function (it) {
+    lit.pose.interactions.forEach(function (it, index) {
       var res = byLabel[it.residue];
       var atom = lit.conformer.atoms[it.atom];
       if (!res || !atom) return;
@@ -461,17 +462,25 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      var mx = p1.x + (p2.x - p1.x) * 0.42, my = p1.y + (p2.y - p1.y) * 0.42;
+      var tbl = (index % 5) * 0.1;
+      var mx = p1.x + (p2.x - p1.x) * (0.30 + tbl), my = p1.y + (p2.y - p1.y) * (0.30 + tbl);
       var text = it.distance.toFixed(1) + " Å";
       ctx.font = "600 9.5px ui-monospace, monospace";
       var tw = ctx.measureText(text).width;
-      ctx.fillStyle = "rgba(10,10,12," + (0.78 * alpha) + ")";
-      roundRect(ctx, mx - tw / 2 - 4, my - 7, tw + 8, 14, 4);
-      ctx.fill();
-      ctx.fillStyle = rgba(meta.color, alpha);
-      ctx.textAlign = "center";
-      ctx.fillText(text, mx, my + 3);
-      ctx.textAlign = "start";
+      var box = { x: mx - tw / 2 - 4, y: my - 7, w: tw + 8, h: 14 };
+      var clashesWithLabel = m3DistanceBoxes.some(function (b) {
+        return !(box.x + box.w < b.x || b.x + b.w < box.x || box.y + box.h < b.y || b.y + b.h < box.y);
+      });
+      if (!clashesWithLabel) {
+        m3DistanceBoxes.push(box);
+        ctx.fillStyle = "rgba(10,10,12," + (0.80 * alpha) + ")";
+        roundRect(ctx, box.x, box.y, box.w, box.h, 4);
+        ctx.fill();
+        ctx.fillStyle = rgba(meta.color, alpha);
+        ctx.textAlign = "center";
+        ctx.fillText(text, mx, my + 3);
+        ctx.textAlign = "start";
+      }
     });
     void w; void h;
 
@@ -509,12 +518,29 @@
     ctx.fillRect(0, 0, w, h);
 
     m3LabelBoxes = [];
+    m3DistanceBoxes = [];
     var rec = REC[state.rid];
     var centre = state.mode === "binding"
       ? (rec ? rec.pocket_center.slice() : [0, 0, 0])
       : [0, 0, 0];
     var cam = camera(w, h);
-    if (state.mode === "binding") drawReceptor(ctx, w, h, cam, centre);
+    if (state.mode === "binding") {
+      // darken the cavity behind the ligand so the pocket reads as depth
+      var rec0 = REC[state.rid];
+      if (rec0) {
+        var pc = project(centre, cam, centre);
+        var rad = Math.max(60, rec0.pocket_radius * 1.5 * cam.k);
+        var halo = ctx.createRadialGradient(pc.x, pc.y, rad * 0.15, pc.x, pc.y, rad);
+        halo.addColorStop(0, "rgba(0,0,0,0.55)");
+        halo.addColorStop(0.65, "rgba(0,0,0,0.32)");
+        halo.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(pc.x, pc.y, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      drawReceptor(ctx, w, h, cam, centre);
+    }
     var lit = ligandPoints();
     drawMolecule(ctx, w, h, cam, centre, lit);
     drawInteractions(ctx, w, h, cam, centre, lit);
