@@ -727,9 +727,15 @@ table.data.mini td { padding: 5px 7px; }
   margin-top: 16px;
 }
 .rgb-view { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.stim-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.stim-name { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
-.stim-meta { font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }
+.stim-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.stim-name {
+  font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.stim-meta {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  letter-spacing: 0.02em; white-space: nowrap; flex: 0 0 auto;
+}
 .stim-shell {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
