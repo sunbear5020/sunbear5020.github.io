@@ -1015,7 +1015,7 @@
     if (removedTotal) notes.push(`<p class="warn">생리적 범위 밖 값을 제거했습니다 — ${removedParts.join(' · ')}</p>`);
     if (qc.inconsistent) notes.push(`<p class="warn">SBP ≤ DBP 모순 쌍 ${qc.inconsistent}건을 제외했습니다.</p>`);
     if (qc.duplicatesRemoved) notes.push(`<p>정확 중복·60초 내 재동기화 ${qc.duplicatesRemoved}건을 한 번의 측정으로 축약했습니다.</p>`);
-    if (qc.gaps.length) notes.push(`<p>6시간 이상 공백 ${qc.gaps.length}건 (최대 ${fmt(qc.maxGap, 1)}시간) — 보정하지 않고 그대로 비교합니다.</p>`);
+    if (qc.gaps.length) notes.push(`<p>${GAP_HOURS}시간 이상 공백 ${qc.gaps.length}건 (최대 ${fmt(qc.maxGap, 1)}시간) — 보정하지 않고 그대로 비교합니다.</p>`);
     const missingHigh = Object.entries(qc.missing).filter(([, v]) => v > 15).map(([k, v]) => `${k.toUpperCase()} ${v}%`);
     if (missingHigh.length) notes.push(`<p>결측이 많은 열: ${missingHigh.join(' · ')}</p>`);
     state.warnings.forEach((w) => notes.push(`<p class="warn">${w}</p>`));
