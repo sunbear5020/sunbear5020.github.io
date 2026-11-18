@@ -322,7 +322,7 @@
     {
       key: 'timestamp',
       label: '시각',
-      patterns: [/^recording timestamp( \[(ms|us|µs|s)\])?$/, /^timestamp( \[(ms|us|µs|s)\])?$/, /^device timestamp.*$/, /^time stamp$/, /^time$/, /^(recording )?timestamp.*$/],
+      patterns: [/^recording timestamp( \[(ms|us|µs|s)\])?$/, /^timestamp( \[(ms|us|µs|s)\])?$/, /^device timestamp.*$/, /^time stamp$/, /^time$/, /^time[ _]?(ms|us|µs|s)$/, /^timestamp[ _]?(ms|us|µs|s)$/, /^time \((ms|us|µs|s)\)$/, /^(recording )?timestamp.*$/],
       block: /duration|time to first|ttff/,
     },
     { key: 'gaze_x', label: '시선 X', required: true, patterns: [/^gaze point x$/, /^gaze point x \((adcs|mcs|dacs|dcs|px).*\)$/, /^gaze x$/, /^gaze position x$/, /^gaze_x$/, /^x$/, /^interpolated gaze point x$/, /^.*gaze point.* x$/] },
