@@ -829,7 +829,7 @@
         return "<li><span class=\"sc\">" + s.s.toFixed(2) + '</span><button type="button" data-sim="' + esc(s.m.id) +
           '">' + esc(s.m.name_ko) + "</button><span class=\"mono\" style=\"color:var(--muted)\">" + esc(NOTE_LABEL[s.m.note]) + "</span></li>";
       }).join("") + "</ul></div>" +
-      '<div class="ad-section"><h4>조화 점수 (동점 제안)</h4><ul class="similar">' + blends.map(function (s) {
+      '<div class="ad-section"><h4>블렌딩 조화 상위</h4><ul class="similar">' + blends.map(function (s) {
         return "<li><span class=\"sc\">" + s.b.toFixed(2) + '</span><button type="button" data-sim="' + esc(s.m.id) +
           '">' + esc(s.m.name_ko) + "</button><span class=\"mono\" style=\"color:var(--muted)\">" + esc(NOTE_LABEL[s.m.note]) + "</span></li>";
       }).join("") + "</ul><p class=\"tiny-note\">조화 점수는 향조 겹침·노트 거리·보완 관계의 합성 지표입니다. 실제 혼합의 냄새를 보장하지 않습니다.</p></div>" +
@@ -917,11 +917,13 @@
     ctx.fillText("분자량 (g/mol) →", pad.l + (W - pad.l - pad.r) / 2, H - 6);
     ctx.textAlign = "left";
     ctx.save();
-    ctx.translate(13, H / 2 + 34);
+    ctx.translate(17, H / 2 + 34);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center";
+    ctx.textBaseline = "top";
     ctx.fillText("휘발성 (1 = 빠름) →", 0, 0);
     ctx.restore();
+    ctx.textBaseline = "alphabetic";
 
     mapHit = [];
     var sel = state.mol.selected;
