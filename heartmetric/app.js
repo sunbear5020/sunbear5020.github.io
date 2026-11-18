@@ -850,7 +850,7 @@
     forest: { pm25: 8.5, green: 0.84, temp: 23.4, humidity: 68, forest: 1 },
   };
 
-  function generateDemo(days = 14, seed = 5020, startISO = '2026-05-06') {
+  function generateDemo(days = 14, seed = 123, startISO = '2026-05-06') {
     const rng = makeRng(seed);
     const slots = [['night', 3, 0], ['morning', 7, 10], ['walk', 10, 0], ['post', 11, 15], ['evening', 21, 40]];
     const start = new Date(`${startISO}T00:00:00`);
@@ -1190,7 +1190,7 @@
     }
   }
 
-  function drawAxes(ctx, width, height, xStart, xEnd, yMin, yMax, xTicks, yLabel) {
+  function drawAxes(ctx, width, height, xStart, xEnd, yMin, yMax, xTicks) {
     const padLeft = 46;
     const padRight = 12;
     const padTop = 10;
@@ -1215,21 +1215,11 @@
       ctx.stroke();
       ctx.fillText(`${Math.round(value)}`, padLeft - 8, yPos);
     }
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     xTicks.forEach((tick) => {
+      ctx.textAlign = tick.align || 'center';
       ctx.fillText(tick.label, x(tick.time), height - padBottom + 7);
     });
-    if (yLabel) {
-      ctx.save();
-      ctx.translate(11, padTop + plotH / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.textAlign = 'center';
-      ctx.fillStyle = MUTED;
-      ctx.font = '10px -apple-system, sans-serif';
-      ctx.fillText(yLabel, 0, 0);
-      ctx.restore();
-    }
     return { x, y, padLeft, padRight, padTop, padBottom, plotW, plotH };
   }
 
@@ -1239,7 +1229,8 @@
     const ticks = [];
     for (let i = 0; i < count; i += 1) {
       const time = start + (end - start) * (i / (count - 1));
-      ticks.push({ time, label: fmtShort(new Date(time)) });
+      const align = i === 0 ? 'left' : i === count - 1 ? 'right' : 'center';
+      ticks.push({ time, label: fmtShort(new Date(time)), align });
     }
     return ticks;
   }
@@ -1256,7 +1247,7 @@
       if (Number.isFinite(v)) { min = Math.min(min, v); max = Math.max(max, v); }
     }));
     const [yMin, yMax] = niceRange(min, max);
-    const axes = drawAxes(ctx, width, height, start, end, yMin, yMax, xTicksFor(rows), options.yLabel);
+    const axes = drawAxes(ctx, width, height, start, end, yMin, yMax, xTicksFor(rows));
     conditionBands(ctx, rows, axes.x, axes.padTop, height - axes.padBottom);
 
     series.forEach((s) => {
@@ -1314,8 +1305,11 @@
     const [xMin, xMax] = niceRange(Math.min(...xs), Math.max(...xs), 0.1);
     const [yMin, yMax] = niceRange(Math.min(...ys), Math.max(...ys), 0.1);
     const axes = drawAxes(ctx, width, height, xMin, xMax, yMin, yMax,
-      [0, 1, 2, 3, 4].map((i) => ({ time: xMin + (xMax - xMin) * i / 4, label: fmt(xMin + (xMax - xMin) * i / 4, xMax < 3 ? 2 : 0) })),
-      METRIC_LABELS[yKey] || yKey);
+      [0, 1, 2, 3, 4].map((i) => ({
+        time: xMin + (xMax - xMin) * i / 4,
+        label: fmt(xMin + (xMax - xMin) * i / 4, xMax < 3 ? 2 : 0),
+        align: i === 0 ? 'left' : i === 4 ? 'right' : 'center',
+      })));
 
     const stat = pearson(rows, xKey, yKey);
     // regression line
@@ -1354,13 +1348,6 @@
       ctx.textBaseline = 'top';
       ctx.fillText(`r = ${stat.r.toFixed(2)} · n = ${stat.n}`, axes.padLeft + 8, axes.padTop + 6);
     }
-    // axis titles
-    ctx.fillStyle = MUTED;
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(METRIC_LABELS[xKey] || xKey, width - axes.padRight, height - 4);
-
     return stat;
   }
 
@@ -1370,12 +1357,12 @@
     drawSeries($('bpChart'), rows, [
       { key: 'sbp', color: BRONZE, width: 1.8 },
       { key: 'dbp', color: 'rgba(20,20,19,0.5)', width: 1.4, dots: false },
-    ], { yLabel: 'mmHg' });
+    ], {});
 
     const hrvKey = state.hrvMetric;
     drawSeries($('hrvChart'), rows, [
       { key: hrvKey, color: SAGE, width: 1.8 },
-    ], { yLabel: 'ms' });
+    ], {});
 
     const stat = drawScatter($('corrChart'), rows, state.corrX, state.corrY);
     $('corrTitle').textContent = `${METRIC_LABELS[state.corrX] || state.corrX} × ${METRIC_LABELS[state.corrY] || state.corrY}`;

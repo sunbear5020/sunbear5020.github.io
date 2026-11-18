@@ -48,6 +48,8 @@ a { color: inherit; }
 
 .muted { color: var(--muted); }
 
+.nowrap { white-space: nowrap; }
+
 /* ---------- header ------------------------------------------------------ */
 
 .site-header {
@@ -698,6 +700,8 @@ a { color: inherit; }
 
 .footer-meta p { margin: 0 0 3px; font-size: 11.5px; color: var(--ink-soft); }
 .footer-meta p.muted { color: var(--muted); }
+
+.nowrap { white-space: nowrap; }
 
 /* ---------- toast ------------------------------------------------------- */
 
