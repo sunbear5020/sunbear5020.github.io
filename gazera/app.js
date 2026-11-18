@@ -398,6 +398,7 @@
       screenW = median(ws) || 0;
       screenH = median(hs) || 0;
     }
+    const screenEstimated = !screenW || !screenH;
     if (!screenW || !screenH) {
       const xs = [], ys = [];
       for (const r of rows) {
@@ -479,7 +480,9 @@
       const subject = isub >= 0 ? String(r[isub] || '').trim() || null : null;
       const trial = itr >= 0 ? String(r[itr] || '').trim() || null : null;
       const condition = icond >= 0 ? String(r[icond] || '').trim() || null : null;
-      const key = subject || trial ? `${subject || '-'}|${trial || '-'}` : 'all';
+      const key = subject || trial || condition
+        ? `${subject || '-'}|${trial || '-'}|${condition || '-'}`
+        : 'all';
       if (!groups.has(key)) {
         groups.set(key, { key, subject, trial, condition, indices: [] });
       }
@@ -548,6 +551,7 @@
       samples,
       groups: Array.from(groups.values()),
       screen: { w: screenW, h: screenH },
+      screenEstimated,
       unit,
       interpolated,
       validityColumns: validCols.map((i) => columns[i]),
@@ -597,6 +601,13 @@
     if (missing / samples.length > 0.1) warnings.push(`좌표 결측이 ${pct(missing / samples.length)}입니다.`);
     if (frame.validityColumns.length === 0) warnings.push('유효성 열을 찾지 못해 좌표 존재 여부로 유효 시선을 판정했습니다.');
     if (frame.interpolated) warnings.push(`짧은 결측 ${frame.interpolated.toLocaleString('ko-KR')}개 샘플을 선형 보간했습니다 (≤3샘플·≤40ms).`);
+    const nonMono = frame.groups.reduce((sum, g) => sum + (g.nonMonotonic || 0), 0);
+    if (nonMono > 0) {
+      warnings.push(`타임스탬프가 뒤로 가는 지점이 ${nonMono.toLocaleString('ko-KR')}개 있습니다. 참가자·시행·조건 열을 매핑하면 recording이 분리됩니다.`);
+    }
+    if (frame.screenEstimated) {
+      warnings.push(`화면 크기 열이 없어 좌표 범위로 추정했습니다 (${Math.round(frame.screen.w)}×${Math.round(frame.screen.h)}).`);
+    }
     return {
       rows: samples.length,
       recordings: frame.groups.length,
@@ -863,12 +874,16 @@
       wrap.classList.add('hidden');
       return;
     }
-    wrap.classList.remove('hidden');
     const { columns, rows } = state.table;
     const wanted = ['timestamp', 'gaze_x', 'gaze_y', 'subject', 'condition'];
     const picks = wanted
       .map((key) => ({ key, col: state.mapping[key] }))
       .filter((p) => p.col && columns.includes(p.col));
+    if (!picks.length) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
     const head = picks
       .map((p) => `<th>${p.key === 'timestamp' ? '시각 (ms)' : FIELD_BY_KEY[p.key] ? FIELD_BY_KEY[p.key].label : p.col}</th>`)
       .join('');
