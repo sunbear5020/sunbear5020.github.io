@@ -10,7 +10,7 @@
 <meta property="og:description" content="Clean-room, vendor-neutral eye-tracking analytics. 100% in-browser, MIT licensed, FEI · HEL Lab.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sunbear5020.github.io/gazera/">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141413'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23FAF9F5' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23D97757'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -32,6 +32,7 @@
     </a>
     <nav class="nav" aria-label="주요 섹션">
       <a href="#workbench">워크벤치</a>
+      <a href="#rgb">RGB 제외</a>
       <a href="#results">분석 결과</a>
       <a href="#visual">시각화</a>
       <a href="#python">Python 엔진</a>
@@ -182,6 +183,101 @@
           <button class="btn" id="runBtn" type="button" disabled>분석 실행 →</button>
         </div>
       </article>
+
+      <!-- 05 stimulus · RGB exclusion ------------------------------------ -->
+      <article class="card span-12" id="rgb">
+        <div class="card-head">
+          <span class="card-num">05</span>
+          <div>
+            <h2 class="card-title">자극 · RGB 제외</h2>
+            <p class="card-desc">
+              검은 배경·흰 여백처럼 분석에서 빼고 싶은 색을 지정하면, 그 색에 머문 시선을
+              응시·도약·AOI·조건 비교·히트맵에서 제외하고 바로 다시 계산합니다.
+              <b>정지 이미지와 동영상</b> 모두 되고, 파일은 브라우저 밖으로 나가지 않습니다.
+            </p>
+          </div>
+          <span class="badge plain spacer" id="rgbBadge">꺼짐</span>
+        </div>
+
+        <div class="rgb-grid">
+          <div class="rgb-view">
+            <div class="stim-head">
+              <span class="stim-name" id="stimName">합성 자극 · 도시숲 / 도심 가로</span>
+              <span class="stim-meta" id="stimMeta">1920×1080</span>
+            </div>
+            <div class="stim-shell">
+              <canvas id="stimCanvas" width="960" height="540"
+                      aria-label="자극 미리보기 — 스포이드를 켜고 누르면 그 픽셀의 색을 뽑습니다"></canvas>
+            </div>
+            <div class="video-bar hidden" id="videoBar">
+              <button class="play-btn" id="videoPlay" type="button" aria-label="동영상 재생">▶</button>
+              <input type="range" id="videoSeek" min="0" max="1000" value="0" step="1" aria-label="동영상 재생 위치">
+              <span class="video-time" id="videoTime">0.00 / 0.00 s</span>
+            </div>
+            <div class="stim-actions">
+              <div class="dropzone stim-drop" id="stimDropzone" tabindex="0" role="button"
+                   aria-label="자극 이미지 또는 동영상 파일 선택">
+                <strong>자극 이미지 · 동영상 올리기</strong>
+                <span>PNG · JPG · MP4 · WebM · MOV</span>
+              </div>
+              <button class="btn secondary small" id="stimReset" type="button">합성 자극으로</button>
+            </div>
+            <input type="file" id="stimInput"
+                   accept="image/*,video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v,.png,.jpg,.jpeg"
+                   class="sr-only">
+            <div class="rgb-progress hidden" id="rgbProgress">
+              <div class="bar"><i id="rgbProgressBar"></i></div>
+              <span id="rgbProgressText">프레임 추출 0%</span>
+            </div>
+            <p class="stim-note" id="stimNote">동영상은 시선 시각에 맞는 프레임을 골라 읽습니다. 스포이드를 켜고 프레임을 누르면 그 색이 제외 목록에 들어갑니다.</p>
+          </div>
+
+          <div class="rgb-panel">
+            <label class="switch">
+              <input type="checkbox" id="rgbEnabled">
+              <span><b>RGB 제외 필터</b><small>끄면 설정은 그대로 두고 원래 데이터로 계산합니다.</small></span>
+            </label>
+
+            <div class="control">
+              <label for="rgbTol">색상 허용 오차 <b><span id="rgbTolVal">15</span></b> <span class="sub">RGB 유클리드 거리 · 0 = 정확히 일치</span></label>
+              <input type="range" id="rgbTol" min="0" max="80" step="1" value="15">
+            </div>
+
+            <div class="rgb-inline">
+              <div class="control">
+                <label for="rgbOffset">자극 오프셋 <b><span id="rgbOffsetVal">0</span> ms</b></label>
+                <input type="number" id="rgbOffset" value="0" step="10" min="-600000" max="600000">
+              </div>
+              <div class="control">
+                <label for="rgbBucket">프레임 간격 <b><span id="rgbBucketVal">200</span> ms</b></label>
+                <input type="range" id="rgbBucket" min="50" max="1000" step="50" value="200">
+              </div>
+            </div>
+
+            <div class="chips-head">
+              <span>제외할 RGB</span>
+              <button class="link-btn" id="rgbEyedropper" type="button" aria-pressed="false">스포이드</button>
+            </div>
+            <div class="chips" id="rgbChips"></div>
+            <div class="rgb-add">
+              <input type="text" id="rgbInput" placeholder="#000000 또는 0,0,0" aria-label="제외할 RGB 값">
+              <button class="btn secondary small" id="rgbAdd" type="button">추가</button>
+            </div>
+            <div class="rgb-quick">
+              <button class="chip-btn" type="button" data-color="#000000"><i style="background:#000000"></i>검정</button>
+              <button class="chip-btn" type="button" data-color="#FFFFFF"><i style="background:#FFFFFF"></i>흰색</button>
+              <button class="chip-btn" type="button" data-color="#141413"><i style="background:#141413"></i>차콜</button>
+            </div>
+
+            <div class="rgb-summary">
+              <div><div class="k">제외된 시선</div><div class="v" id="rgbExcludedSamples">—</div></div>
+              <div><div class="k">제외 비율</div><div class="v" id="rgbExcludedRatio">—</div></div>
+              <div><div class="k">남은 응시</div><div class="v" id="rgbFixations">—</div></div>
+            </div>
+            <div class="rgb-compare" id="rgbCompare"></div>
+          </div>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -295,6 +391,7 @@
           <span><i style="background:#D97757"></i>응시 밀도</span>
           <span><i style="background:#141413"></i>도약 경로</span>
           <span><i style="background:rgba(217,119,87,.18);border:1px solid #D97757"></i>AOI 영역</span>
+          <span id="legendExcluded" class="hidden"><i class="cross"></i>제외된 시선</span>
         </div>
         <span id="canvasScreen">합성 좌표 · 1920×1080 기준</span>
       </div>
@@ -438,6 +535,6 @@ uvicorn api.server:app --port 8000</code></pre>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

@@ -68,6 +68,35 @@
     analysis: null,
     mode: 'heat',
     toast: toast,
+    // stimulus RGB exclusion (image or video)
+    rgb: {
+      enabled: false,
+      colors: [], // [{ r, g, b }]
+      tolerance: 15,
+      offsetMs: 0,
+      bucketMs: 200,
+      excluded: new Set(),
+      samples: null, // Int32Array of packed RGB per sample (-1 = not sampled)
+      sampled: 0,
+      framesRead: 0,
+      perColor: [],
+      busy: false,
+      token: 0,
+      eyedropper: false,
+    },
+    stimulus: {
+      kind: 'synthetic', // 'synthetic' | 'image' | 'video'
+      name: '합성 자극 · 도시숲 / 도심 가로',
+      image: null, // full-resolution canvas for a still image
+      imageData: null,
+      sampleW: 1920,
+      sampleH: 1080,
+      video: null,
+      frameCanvas: null,
+      url: null,
+      durationMs: 0,
+      bg: null, // 960x540 snapshot used as the heatmap background
+    },
   };
   window.GAZERA_STATE = state;
 
@@ -652,7 +681,7 @@
     return out;
   }
 
-  function classifyIvt(frame, config) {
+  function classifyIvt(frame, config, excluded) {
     const pxPerDeg = estimatePxPerDeg(frame.screen.w || 1920);
     const segments = [];
     const threshold = config.threshold;
@@ -726,7 +755,7 @@
 
       for (const i of idx) {
         const sample = frame.samples[i];
-        if (!sample.valid) { flush(); continue; }
+        if (!sample.valid || (excluded && excluded.size && excluded.has(i))) { flush(); continue; }
         if (run.length) {
           const last = frame.samples[run[run.length - 1]].t;
           if (sample.t - last > maxGap) flush();
@@ -758,7 +787,7 @@
       const sac = segs.filter((s) => s.type === 'saccade');
       const totalFix = fix.reduce((s, v) => s + v.duration, 0);
       const sampleIdx = group.indices;
-      const validCount = sampleIdx.filter((i) => frame.samples[i].valid).length;
+      const validCount = sampleIdx.filter((i) => frame.samples[i].valid && !frame.samples[i].rgbExcluded).length;
       const base = sampleIdx.length ? frame.samples[sampleIdx[0]].t : 0;
       const row = {
         subject: group.subject || 'all',
@@ -988,6 +1017,8 @@
 
   function clearResults(message) {
     state.analysis = null;
+    renderRgbSummary();
+    renderRgbCompare(null, null);
     $('kpiGrid').innerHTML = '';
     document.querySelector('#aoiTable tbody').innerHTML =
       `<tr><td colspan="6" style="color:#6b6a66">${message || '분석을 실행하면 표가 채워집니다.'}</td></tr>`;
@@ -1119,6 +1150,607 @@
       .join('');
   }
 
+  /* --------------------------------------------- stimulus & RGB exclusion */
+  // Everything below stays in the browser: the stimulus file never leaves the
+  // machine. Images are read through a canvas, videos frame by frame at the
+  // gaze timestamp.
+  const EMPTY_SET = new Set();
+  const rgbCtl = () => state.rgb;
+  const stimCtl = () => state.stimulus;
+
+  const packRgb = (r, g, b) => ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
+  const rgbHex = (c) =>
+    `#${[c.r, c.g, c.b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+
+  function parseRgbInput(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+    let m = raw.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (m) {
+      let hex = m[1];
+      if (hex.length === 3) hex = hex.split('').map((ch) => ch + ch).join('');
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+    const nums = raw.match(/\d+/g);
+    if (nums && nums.length >= 3) {
+      const [r, g, b] = nums.slice(0, 3).map(Number);
+      if ([r, g, b].every((v) => v >= 0 && v <= 255)) return { r, g, b };
+    }
+    return null;
+  }
+
+  /* --- synthetic stimulus: a poster with flat colours to sample ---------- */
+  function drawSyntheticStimulus() {
+    const W = 1920, H = 1080;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const x = canvas.getContext('2d', { willReadFrequently: true });
+
+    x.fillStyle = '#FAF9F5';
+    x.fillRect(0, 0, W, H);
+
+    // black header band (top 16 %)
+    x.fillStyle = '#000000';
+    x.fillRect(0, 0, W, Math.round(H * 0.16));
+    x.fillStyle = '#FFFFFF';
+    x.fillRect(96, 46, 660, 30);
+    x.fillRect(96, 92, 360, 12);
+
+    // left: urban forest photo block
+    const forest = x.createLinearGradient(0, 230, 0, 700);
+    forest.addColorStop(0, '#2F4A38');
+    forest.addColorStop(1, '#152219');
+    x.fillStyle = forest;
+    x.fillRect(96, 230, 760, 470);
+    x.fillStyle = 'rgba(92,107,90,0.85)';
+    for (let i = 0; i < 7; i++) {
+      const cx = 170 + i * 105;
+      x.beginPath();
+      x.arc(cx, 420 + ((i * 37) % 90), 78, 0, Math.PI * 2);
+      x.fill();
+    }
+    x.fillStyle = '#5C6B5A';
+    x.fillRect(96, 660, 760, 40);
+
+    // right: urban street photo block
+    const street = x.createLinearGradient(1064, 230, 1824, 700);
+    street.addColorStop(0, '#6B6A66');
+    street.addColorStop(1, '#3C3B39');
+    x.fillStyle = street;
+    x.fillRect(1064, 230, 760, 470);
+    x.fillStyle = '#8C8B86';
+    x.fillRect(1100, 440, 690, 26);
+    x.fillStyle = '#2C2B28';
+    for (let i = 0; i < 5; i++) x.fillRect(1120 + i * 140, 260, 90, 150);
+
+    // white caption card
+    x.fillStyle = '#FFFFFF';
+    x.fillRect(96, 800, 1728, 190);
+    x.fillStyle = '#141413';
+    x.fillRect(140, 846, 700, 20);
+    x.fillRect(140, 886, 1080, 10);
+    x.fillRect(140, 906, 980, 10);
+    x.fillRect(140, 926, 620, 10);
+
+    // black footer bar
+    x.fillStyle = '#000000';
+    x.fillRect(0, H - 44, W, 44);
+    return canvas;
+  }
+
+  function setSyntheticStimulus() {
+    const st = stimCtl();
+    if (st.video) {
+      try { st.video.pause(); } catch (e) { /* ignore */ }
+    }
+    st.kind = 'synthetic';
+    st.name = '합성 자극 · 도시숲 / 도심 가로';
+    st.image = drawSyntheticStimulus();
+    st.imageData = null;
+    st.sampleW = st.image.width;
+    st.sampleH = st.image.height;
+    st.video = null;
+    if (st.url) { URL.revokeObjectURL(st.url); st.url = null; }
+    st.durationMs = 0;
+    $('videoBar').classList.add('hidden');
+    updateStimMeta();
+    renderStimPreview();
+    drawCanvas();
+    if (rgbCtl().enabled) sampleStimulusColors();
+  }
+
+  function fitSize(width, height, maxSide = 1920) {
+    if (!width || !height) return [1, 1];
+    const factor = Math.min(1, maxSide / Math.max(width, height));
+    return [Math.max(1, Math.round(width * factor)), Math.max(1, Math.round(height * factor))];
+  }
+
+  function updateStimMeta() {
+    const st = stimCtl();
+    $('stimName').textContent = st.name;
+    const kindLabel = st.kind === 'video' ? '동영상' : st.kind === 'image' ? '이미지' : '합성';
+    const size = `${st.kind === 'video' ? st.sampleW : st.image ? st.image.width : st.sampleW}×${
+      st.kind === 'video' ? st.sampleH : st.image ? st.image.height : st.sampleH
+    }`;
+    $('stimMeta').textContent =
+      st.kind === 'video' && st.durationMs
+        ? `${kindLabel} · ${size} · ${(st.durationMs / 1000).toFixed(1)}초`
+        : `${kindLabel} · ${size}`;
+  }
+
+  function renderStimPreview() {
+    const canvas = $('stimCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const st = stimCtl();
+    if (st.kind === 'video') {
+      if (st.video && st.video.readyState >= 2) {
+        if (!st.frameCanvas) {
+          st.frameCanvas = document.createElement('canvas');
+        }
+        if (st.frameCanvas.width !== st.sampleW || st.frameCanvas.height !== st.sampleH) {
+          st.frameCanvas.width = st.sampleW;
+          st.frameCanvas.height = st.sampleH;
+        }
+        st.frameCanvas.getContext('2d').drawImage(st.video, 0, 0, st.sampleW, st.sampleH);
+        st.bg = st.frameCanvas;
+        ctx.drawImage(st.bg, 0, 0, W, H);
+      } else {
+        ctx.fillStyle = '#141413';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#FAF9F5';
+        ctx.font = '13px sans-serif';
+        ctx.fillText('동영상 프레임을 불러오는 중…', 24, 40);
+      }
+    } else if (st.image) {
+      st.bg = st.image;
+      ctx.drawImage(st.image, 0, 0, W, H);
+    }
+  }
+
+  /* --- file loading ------------------------------------------------------ */
+  function loadStimulusFile(file) {
+    if (!file) return;
+    const isVideo = /^video\//.test(file.type) || /\.(mp4|webm|mov|m4v|ogv|avi|mkv)$/i.test(file.name);
+    const isImage = /^image\//.test(file.type) || /\.(png|jpe?g|gif|bmp|webp|avif)$/i.test(file.name);
+    if (!isVideo && !isImage) {
+      toast('이미지(PNG·JPG) 또는 동영상(MP4·WebM·MOV) 파일을 올려 주세요.');
+      return;
+    }
+    if (isVideo) loadStimulusVideo(file);
+    else loadStimulusImage(file);
+  }
+
+  function loadStimulusImage(file) {
+    const st = stimCtl();
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const [w, h] = fitSize(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      if (st.video) { try { st.video.pause(); } catch (e) { /* ignore */ } }
+      if (st.url) URL.revokeObjectURL(st.url);
+      st.kind = 'image';
+      st.name = file.name;
+      st.image = canvas;
+      st.imageData = null;
+      st.sampleW = w;
+      st.sampleH = h;
+      st.video = null;
+      st.url = null;
+      st.durationMs = 0;
+      $('videoBar').classList.add('hidden');
+      updateStimMeta();
+      renderStimPreview();
+      toast(`자극 이미지 ${w}×${h}를 불러왔습니다.`);
+      if (rgbCtl().enabled) sampleStimulusColors();
+      else runAnalysis();
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      toast('이미지를 읽을 수 없습니다.');
+    };
+    img.src = url;
+  }
+
+  function loadStimulusVideo(file) {
+    const st = stimCtl();
+    if (st.url) URL.revokeObjectURL(st.url);
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = url;
+    video.addEventListener('loadedmetadata', () => {
+      const [w, h] = fitSize(video.videoWidth, video.videoHeight);
+      st.kind = 'video';
+      st.name = file.name;
+      st.image = null;
+      st.imageData = null;
+      st.video = video;
+      st.url = url;
+      st.sampleW = w;
+      st.sampleH = h;
+      st.durationMs = Number.isFinite(video.duration) ? video.duration * 1000 : 0;
+      $('videoBar').classList.remove('hidden');
+      $('videoSeek').max = String(Math.max(1, Math.floor(st.durationMs)));
+      $('videoSeek').value = '0';
+      updateVideoTime();
+      updateStimMeta();
+      seekVideo(0).then(() => {
+        renderStimPreview();
+        if (rgbCtl().enabled) sampleStimulusColors();
+        else runAnalysis();
+      });
+      toast(`동영상 자극 ${w}×${h} · ${(st.durationMs / 1000).toFixed(1)}초를 불러왔습니다.`);
+    });
+    video.addEventListener('error', () => {
+      toast('이 동영상 형식은 브라우저에서 재생할 수 없습니다. MP4(H.264)나 WebM으로 변환해 주세요.');
+    });
+  }
+
+  /* --- video helpers ----------------------------------------------------- */
+  function seekVideo(seconds) {
+    const st = stimCtl();
+    const video = st.video;
+    if (!video) return Promise.resolve();
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const target = Math.max(0, Math.min(seconds, Math.max(0, duration - 0.02)));
+    if (Math.abs(video.currentTime - target) < 0.001 && video.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        video.removeEventListener('seeked', finish);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, 1200);
+      video.addEventListener('seeked', finish);
+      try {
+        video.currentTime = target;
+      } catch (e) {
+        finish();
+      }
+    });
+  }
+
+  let videoRaf = null;
+  function toggleVideoPlay() {
+    const st = stimCtl();
+    if (!st.video) return;
+    if (st.video.paused) {
+      st.video.play().catch(() => toast('재생할 수 없습니다.'));
+      const tick = () => {
+        if (!st.video || st.video.paused) {
+          videoRaf = null;
+          $('videoPlay').textContent = '▶';
+          renderStimPreview();
+          return;
+        }
+        $('videoSeek').value = String(Math.round(st.video.currentTime * 1000));
+        updateVideoTime();
+        renderStimPreview();
+        videoRaf = requestAnimationFrame(tick);
+      };
+      $('videoPlay').textContent = '❚❚';
+      videoRaf = requestAnimationFrame(tick);
+    } else {
+      st.video.pause();
+      $('videoPlay').textContent = '▶';
+      if (videoRaf) cancelAnimationFrame(videoRaf);
+      videoRaf = null;
+    }
+  }
+
+  function updateVideoTime() {
+    const st = stimCtl();
+    if (!st.video) return;
+    const now = st.video.currentTime || 0;
+    const total = Number.isFinite(st.video.duration) ? st.video.duration : 0;
+    $('videoTime').textContent = `${now.toFixed(2)} / ${total.toFixed(2)} s`;
+  }
+
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+  function showRgbProgress(ratio, text) {
+    const box = $('rgbProgress');
+    box.classList.remove('hidden');
+    $('rgbProgressBar').style.width = `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
+    $('rgbProgressText').textContent = text;
+  }
+  function hideRgbProgress() {
+    $('rgbProgress').classList.add('hidden');
+  }
+
+  /* --- sampling the stimulus colour under each gaze sample ---------------- */
+  async function sampleStimulusColors() {
+    const rgb = rgbCtl();
+    const st = stimCtl();
+    const frame = state.frame;
+    if (!frame) return;
+    if (st.kind === 'video' && (!st.video || st.video.readyState < 2)) return;
+    const token = ++rgb.token;
+    rgb.busy = true;
+    const total = frame.samples.length;
+    const packed = new Int32Array(total).fill(-1);
+    let sampled = 0;
+    let framesRead = 0;
+
+    const indexList = [];
+    for (let i = 0; i < total; i++) {
+      const s = frame.samples[i];
+      if (s.valid && Number.isFinite(s.x) && Number.isFinite(s.y)) indexList.push(i);
+    }
+    const screenW = frame.screen.w || 1920;
+    const screenH = frame.screen.h || 1080;
+
+    try {
+      if (st.kind === 'video') {
+        const buckets = new Map();
+        for (const i of indexList) {
+          const stimulusTime = Math.max(0, frame.samples[i].t + rgb.offsetMs);
+          const bucket = Math.floor(stimulusTime / rgb.bucketMs);
+          if (!buckets.has(bucket)) buckets.set(bucket, []);
+          buckets.get(bucket).push(i);
+        }
+        const keys = Array.from(buckets.keys()).sort((a, b) => a - b);
+        const full = document.createElement('canvas');
+        full.width = st.sampleW;
+        full.height = st.sampleH;
+        const fctx = full.getContext('2d', { willReadFrequently: true });
+        showRgbProgress(0, `프레임 추출 0% (0/${keys.length})`);
+        let done = 0;
+        for (const key of keys) {
+          if (token !== rgb.token) return;
+          await seekVideo((key * rgb.bucketMs) / 1000);
+          if (token !== rgb.token) return;
+          if (!st.video || st.video.readyState < 2) continue;
+          fctx.drawImage(st.video, 0, 0, full.width, full.height);
+          const data = fctx.getImageData(0, 0, full.width, full.height).data;
+          for (const i of buckets.get(key)) {
+            const s = frame.samples[i];
+            const px = clamp(Math.round((s.x / screenW) * (full.width - 1)), 0, full.width - 1);
+            const py = clamp(Math.round((s.y / screenH) * (full.height - 1)), 0, full.height - 1);
+            const off = (py * full.width + px) * 4;
+            packed[i] = packRgb(data[off], data[off + 1], data[off + 2]);
+            sampled += 1;
+          }
+          framesRead += 1;
+          done += 1;
+          showRgbProgress(done / keys.length, `프레임 추출 ${Math.round((done / keys.length) * 100)}% (${done}/${keys.length})`);
+          await nextFrame();
+        }
+      } else {
+        const src = st.image;
+        if (!src) return;
+        if (!st.imageData) {
+          st.imageData = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, src.width, src.height);
+        }
+        const data = st.imageData.data;
+        const width = st.imageData.width;
+        const height = st.imageData.height;
+        for (const i of indexList) {
+          const s = frame.samples[i];
+          const px = clamp(Math.round((s.x / screenW) * (width - 1)), 0, width - 1);
+          const py = clamp(Math.round((s.y / screenH) * (height - 1)), 0, height - 1);
+          const off = (py * width + px) * 4;
+          packed[i] = packRgb(data[off], data[off + 1], data[off + 2]);
+          sampled += 1;
+        }
+        framesRead = 1;
+      }
+    } finally {
+      if (token === rgb.token) {
+        rgb.samples = packed;
+        rgb.sampled = sampled;
+        rgb.framesRead = framesRead;
+        rgb.busy = false;
+        hideRgbProgress();
+        classifyRgb();
+      }
+    }
+  }
+
+  function classifyRgb() {
+    const rgb = rgbCtl();
+    const n = state.frame ? state.frame.samples.length : 0;
+    const excluded = new Set();
+    const perColor = rgb.colors.map((c) => ({ ...c, count: 0 }));
+    if (rgb.enabled && rgb.samples && rgb.colors.length) {
+      const tol2 = rgb.tolerance * rgb.tolerance;
+      const samples = rgb.samples;
+      for (let i = 0; i < n; i++) {
+        const packed = samples[i];
+        if (packed < 0) continue;
+        const r = (packed >> 16) & 255;
+        const g = (packed >> 8) & 255;
+        const b = packed & 255;
+        for (let k = 0; k < perColor.length; k++) {
+          const c = perColor[k];
+          const d2 = (r - c.r) ** 2 + (g - c.g) ** 2 + (b - c.b) ** 2;
+          if (d2 <= tol2) {
+            excluded.add(i);
+            perColor[k].count += 1;
+          }
+        }
+      }
+    }
+    rgb.excluded = excluded;
+    rgb.perColor = perColor;
+    if (state.frame) {
+      const samples = state.frame.samples;
+      for (let i = 0; i < samples.length; i++) samples[i].rgbExcluded = excluded.has(i);
+    }
+    renderRgbChips();
+    renderRgbSummary();
+    runAnalysis();
+  }
+
+  let reclassifyTimer = null;
+  function scheduleReclassify() {
+    clearTimeout(reclassifyTimer);
+    reclassifyTimer = setTimeout(classifyRgb, 120);
+  }
+
+  /* --- UI pieces --------------------------------------------------------- */
+  function renderRgbChips() {
+    const box = $('rgbChips');
+    if (!box) return;
+    const rgb = rgbCtl();
+    box.innerHTML = '';
+    if (!rgb.colors.length) {
+      box.innerHTML = '<span class="chips-empty">아직 지정한 색이 없습니다</span>';
+      return;
+    }
+    rgb.colors.forEach((c, index) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      const hit = rgb.perColor[index] ? rgb.perColor[index].count : 0;
+      chip.innerHTML = `<i class="swatch" style="background:${rgbHex(c)}"></i><b>${rgbHex(c)}</b><small>${c.r}, ${c.g}, ${c.b}${
+        rgb.enabled ? ` · ${hit.toLocaleString('ko-KR')}건` : ''
+      }</small>`;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'chip-del';
+      del.title = '이 색 제외 해제';
+      del.setAttribute('aria-label', `${rgbHex(c)} 제거`);
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        rgb.colors.splice(index, 1);
+        classifyRgb();
+      });
+      chip.appendChild(del);
+      box.appendChild(chip);
+    });
+  }
+
+  function addRgbColor(color) {
+    if (!color) return;
+    const rgb = rgbCtl();
+    if (rgb.colors.some((c) => c.r === color.r && c.g === color.g && c.b === color.b)) {
+      toast(`${rgbHex(color)}은(는) 이미 목록에 있습니다.`);
+      return;
+    }
+    rgb.colors.push(color);
+    if (!rgb.enabled) setRgbEnabled(true);
+    else if (!rgb.samples) sampleStimulusColors();
+    else classifyRgb();
+    toast(`${rgbHex(color)}을(를) 제외 목록에 추가했습니다.`);
+  }
+
+  function renderRgbSummary() {
+    const rgb = rgbCtl();
+    const enabled = rgb.enabled;
+    $('rgbBadge').textContent = enabled
+      ? `켜짐 · ${rgb.colors.length}색 · ±${rgb.tolerance}`
+      : '꺼짐';
+    $('rgbBadge').classList.toggle('live', enabled);
+    const total = state.frame ? state.frame.samples.length : 0;
+    const excluded = enabled ? rgb.excluded.size : 0;
+    $('rgbExcludedSamples').textContent = enabled ? `${excluded.toLocaleString('ko-KR')}건` : '—';
+    $('rgbExcludedRatio').textContent = enabled && total ? pct(excluded / total) : '—';
+    const fix = state.analysis ? state.analysis.segments.filter((s) => s.type === 'fixation').length : 0;
+    $('rgbFixations').textContent = state.analysis ? `${fix.toLocaleString('ko-KR')}회` : '—';
+  }
+
+  function renderRgbCompare(base, filtered) {
+    const box = $('rgbCompare');
+    if (!box) return;
+    const rgb = rgbCtl();
+    if (!rgb.enabled || !base || !filtered) {
+      box.innerHTML = '<p class="rgb-empty">필터를 켜면 제외 전/후 비교가 여기에 표시됩니다.</p>';
+      return;
+    }
+    const rows = [
+      ['응시 횟수', mean(base.participants.map((p) => p.fixationCount)), mean(filtered.participants.map((p) => p.fixationCount)), 1],
+      ['평균 응시(ms)', mean(base.participants.map((p) => p.fixationMean)), mean(filtered.participants.map((p) => p.fixationMean)), 0],
+      ['도약 횟수', mean(base.participants.map((p) => p.saccadeCount)), mean(filtered.participants.map((p) => p.saccadeCount)), 1],
+      ['도약 진폭(°)', mean(base.participants.map((p) => p.saccadeAmplitude)), mean(filtered.participants.map((p) => p.saccadeAmplitude)), 2],
+    ];
+    const body = rows
+      .map(([label, a, b, digits]) => {
+        const change = numberChange(a, b);
+        return `<tr><td>${label}</td><td class="num">${fmt(a, digits)}</td><td class="num">${fmt(b, digits)}</td><td class="num ${change < -5 ? 'down' : change > 5 ? 'up' : ''}">${pct(change / 100, 1)}</td></tr>`;
+      })
+      .join('');
+    box.innerHTML = `<table class="data mini rgb-table"><thead><tr><th>지표</th><th class="num">제외 전</th><th class="num">제외 후</th><th class="num">변화</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function numberChange(before, after) {
+    if (!Number.isFinite(before) || !Number.isFinite(after) || before === 0) return NaN;
+    return ((after - before) / before) * 100;
+  }
+
+  function setEyedropper(on) {
+    const rgb = rgbCtl();
+    rgb.eyedropper = on;
+    $('rgbEyedropper').setAttribute('aria-pressed', String(on));
+    $('stimCanvas').classList.toggle('picking', on);
+    $('stimNote').textContent = on
+      ? '자극 위 색을 누르면 그 RGB가 제외 목록에 들어갑니다. (동영상은 원하는 프레임으로 이동한 뒤 누르세요)'
+      : '동영상은 시선 시각에 맞는 프레임을 골라 읽습니다. 스포이드를 켜고 프레임을 누르면 그 색이 제외 목록에 들어갑니다.';
+  }
+
+  function pickColorAt(fx, fy) {
+    const st = stimCtl();
+    if (st.kind === 'video') {
+      const video = st.video;
+      if (!video || video.readyState < 2) return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = st.sampleW;
+      canvas.height = st.sampleH;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const px = clamp(Math.round(fx * (canvas.width - 1)), 0, canvas.width - 1);
+      const py = clamp(Math.round(fy * (canvas.height - 1)), 0, canvas.height - 1);
+      const d = ctx.getImageData(px, py, 1, 1).data;
+      return { r: d[0], g: d[1], b: d[2] };
+    }
+    const src = st.image;
+    if (!src) return null;
+    if (!st.imageData) st.imageData = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, src.width, src.height);
+    const data = st.imageData.data;
+    const px = clamp(Math.round(fx * (st.imageData.width - 1)), 0, st.imageData.width - 1);
+    const py = clamp(Math.round(fy * (st.imageData.height - 1)), 0, st.imageData.height - 1);
+    const off = (py * st.imageData.width + px) * 4;
+    return { r: data[off], g: data[off + 1], b: data[off + 2] };
+  }
+
+  function setRgbEnabled(on) {
+    const rgb = rgbCtl();
+    rgb.enabled = on;
+    $('rgbEnabled').checked = on;
+    if (on && !rgb.samples) {
+      sampleStimulusColors();
+    } else {
+      classifyRgb();
+    }
+    renderRgbSummary();
+  }
+
+  function initRgb() {
+    const rgb = rgbCtl();
+    rgb.colors = [{ r: 0, g: 0, b: 0 }];
+    setSyntheticStimulus();
+    renderRgbChips();
+    renderRgbSummary();
+    renderRgbCompare(null, null);
+  }
+
   /* ----------------------------------------------------------- visualise */
   const COLORS = {
     ink: '#141413',
@@ -1189,15 +1821,23 @@
     const sx = W / frame.screen.w;
     const sy = H / frame.screen.h;
 
-    // stimulus hints: soft horizon bands (no vendor image is ever used)
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, 'rgba(255,255,255,0.55)');
-    grad.addColorStop(0.55, 'rgba(240,238,230,0.2)');
-    grad.addColorStop(1, 'rgba(226,222,208,0.45)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    // stimulus as the background so it is obvious where gaze was excluded
+    const stim = stimCtl();
+    if (stim.bg) {
+      ctx.drawImage(stim.bg, 0, 0, W, H);
+      ctx.fillStyle = 'rgba(250,249,245,0.10)';
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, 'rgba(255,255,255,0.55)');
+      grad.addColorStop(0.55, 'rgba(240,238,230,0.2)');
+      grad.addColorStop(1, 'rgba(226,222,208,0.45)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
 
     const idx = group.indices;
+    const excluded = state.rgb.enabled ? state.rgb.excluded : null;
 
     if (state.mode === 'heat' || state.mode === 'both') {
       const off = document.createElement('canvas');
@@ -1211,6 +1851,7 @@
       for (const i of idx) {
         const s = frame.samples[i];
         if (!s.valid) continue;
+        if (excluded && excluded.has(i)) continue;
         const gx = s.x * sx;
         const gy = s.y * sy;
         if (gx < -radius || gy < -radius || gx > W + radius || gy > H + radius) continue;
@@ -1249,8 +1890,7 @@
     }
 
     // AOI boxes on top of the heat so the layout stays readable
-    const aois = state.analysis.aois;
-    ctx.font = '600 12px Inter, sans-serif';
+    const aois = state.analysis.aois;    ctx.font = '600 12px Inter, sans-serif';
     for (const aoi of aois) {
       const x = aoi.x * W, y = aoi.y * H, w = aoi.w * W, h = aoi.h * H;
       ctx.save();
@@ -1263,6 +1903,29 @@
       ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(140,60,30,0.9)';
       ctx.fillText(aoi.name, x + 8, y + 18);
+      ctx.restore();
+    }
+
+    // where the filter removed gaze: small hollow crosses on the stimulus
+    if (excluded && excluded.size) {
+      const marks = [];
+      for (const i of idx) {
+        if (excluded.has(i)) marks.push(frame.samples[i]);
+        if (marks.length >= 1600) break;
+      }
+      ctx.save();
+      ctx.strokeStyle = 'rgba(20,20,19,0.35)';
+      ctx.lineWidth = 1;
+      for (const s of marks) {
+        const x = s.x * sx;
+        const y = s.y * sy;
+        ctx.beginPath();
+        ctx.moveTo(x - 2.4, y - 2.4);
+        ctx.lineTo(x + 2.4, y + 2.4);
+        ctx.moveTo(x + 2.4, y - 2.4);
+        ctx.lineTo(x - 2.4, y + 2.4);
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -1307,8 +1970,14 @@
     ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
 
     const fixCount = state.analysis.segments.filter((s) => s.group === group.key && s.type === 'fixation').length;
-    $('canvasMeta').textContent = `${group.condition || '—'} · ${group.subject || 'all'} · ${fmt(group.duration || 0, 1)}초 · 응시 ${fixCount}회`;
-    $('canvasScreen').textContent = `합성 좌표 · ${Math.round(frame.screen.w)}×${Math.round(frame.screen.h)} 기준`;
+    const excludedInGroup = excluded ? idx.filter((i) => excluded.has(i)).length : 0;
+    $('canvasMeta').textContent = `${group.condition || '—'} · ${group.subject || 'all'} · ${fmt(group.duration || 0, 1)}초 · 응시 ${fixCount}회${
+      state.rgb.enabled ? ` · 제외 ${excludedInGroup.toLocaleString('ko-KR')}샘플` : ''
+    }`;
+    const stimLabel = stim.kind === 'video' ? '동영상 자극' : stim.kind === 'image' ? '자극 이미지' : '합성 자극';
+    $('canvasScreen').textContent = `${stimLabel} 배경 · ${Math.round(frame.screen.w)}×${Math.round(frame.screen.h)} 기준`;
+    const legendExcluded = $('legendExcluded');
+    if (legendExcluded) legendExcluded.classList.toggle('hidden', !(state.rgb.enabled && excluded && excluded.size));
   }
 
   function renderPreviewSelectors() {
@@ -1377,7 +2046,48 @@
 
   function downloadJson() {
     if (!state.analysis) return;
-    const { participants, aois, conditions, segments, pxPerDeg, config } = state.analysis;
+    const { participants, aois, conditions, segments, pxPerDeg, config, base } = state.analysis;
+    const rgb = state.rgb;
+    const stim = stimCtl();
+    const totalSamples = state.frame ? state.frame.samples.length : 0;
+    const rgbPayload = rgb.colors.length
+      ? {
+          enabled: rgb.enabled,
+          stimulus: {
+            kind: stim.kind,
+            name: stim.name,
+            width: stim.kind === 'video' ? stim.sampleW : stim.image ? stim.image.width : null,
+            height: stim.kind === 'video' ? stim.sampleH : stim.image ? stim.image.height : null,
+            duration_ms: stim.durationMs || null,
+          },
+          exclude_rgb: rgb.colors.map((c) => ({ hex: rgbHex(c), rgb: [c.r, c.g, c.b] })),
+          tolerance: rgb.tolerance,
+          offset_ms: rgb.offsetMs,
+          frame_bucket_ms: rgb.bucketMs,
+          samples_total: totalSamples,
+          samples_sampled: rgb.sampled,
+          frames_read: rgb.framesRead,
+          excluded_samples: rgb.enabled ? rgb.excluded.size : 0,
+          excluded_ratio: rgb.enabled && totalSamples ? rgb.excluded.size / totalSamples : 0,
+          excluded_by_color: rgb.perColor.map((c) => ({ hex: rgbHex(c), rgb: [c.r, c.g, c.b], samples: c.count })),
+          before_after: base
+            ? {
+                fixation_count: {
+                  before: mean(base.participants.map((p) => p.fixationCount)),
+                  after: mean(participants.map((p) => p.fixationCount)),
+                },
+                fixation_mean_ms: {
+                  before: mean(base.participants.map((p) => p.fixationMean)),
+                  after: mean(participants.map((p) => p.fixationMean)),
+                },
+                saccade_amplitude_deg: {
+                  before: mean(base.participants.map((p) => p.saccadeAmplitude)),
+                  after: mean(participants.map((p) => p.saccadeAmplitude)),
+                },
+              }
+            : null,
+        }
+      : null;
     const payload = {
       schema: 'gazera.result.v1',
       generated_at: new Date().toISOString(),
@@ -1385,6 +2095,7 @@
       source: { file: state.fileName, synthetic: state.source === 'demo' },
       mapping: state.mapping,
       config: { velocity_threshold_deg_s: config.threshold, min_fixation_ms: config.minFixation, px_per_deg: pxPerDeg, aois },
+      rgb_filter: rgbPayload,
       quality: state.quality,
       summary: {
         rows: state.quality.rows,
@@ -1435,9 +2146,12 @@
     try {
       state.frame = buildFrame(state.table, state.mapping);
       state.quality = computeQuality(state.frame);
+      state.rgb.samples = null;
+      state.rgb.excluded = new Set();
       renderQuality();
       renderFileMeta();
-      runAnalysis();
+      if (state.rgb.enabled) sampleStimulusColors();
+      else runAnalysis();
     } catch (err) {
       // required columns not chosen yet: keep the page calm instead of toasting
       state.frame = null;
@@ -1451,6 +2165,19 @@
     }
   }
 
+  function baselineAnalysis(config, aois) {
+    const key = `${config.threshold}|${config.minFixation}|${aois
+      .map((a) => `${a.name}:${a.x},${a.y},${a.w},${a.h}`)
+      .join(';')}`;
+    const frame = state.frame;
+    if (frame._baseline && frame._baseline.key === key) return frame._baseline.value;
+    const { segments, pxPerDeg } = classifyIvt(frame, config, null);
+    const participants = computeMetrics(frame, segments, aois, pxPerDeg);
+    const value = { segments, participants, pxPerDeg };
+    frame._baseline = { key, value };
+    return value;
+  }
+
   function runAnalysis() {
     if (!state.table) return;
     try {
@@ -1460,18 +2187,27 @@
         minFixation: Number($('minFix').value),
       };
       const aois = readAois();
-      const { segments, pxPerDeg } = classifyIvt(state.frame, config);
+      const excluded = state.rgb.enabled ? state.rgb.excluded : EMPTY_SET;
+      const { segments, pxPerDeg } = classifyIvt(state.frame, config, excluded);
       const participants = computeMetrics(state.frame, segments, aois, pxPerDeg);
       const conditions = Array.from(new Set(participants.map((p) => p.condition)));
-      state.analysis = { segments, participants, aois, conditions, pxPerDeg, config };
+      const base = state.rgb.enabled ? baselineAnalysis(config, aois) : null;
+      state.analysis = { segments, participants, aois, conditions, pxPerDeg, config, base, excludedSize: excluded.size };
 
       $('resultCount').textContent = `${participants.length} recordings · ${segments.filter((s) => s.type === 'fixation').length.toLocaleString('ko-KR')} fixations`;
-      $('resultSub').textContent = `${state.fileName || '데이터'} · I-VT ${config.threshold}°/s · 최소 응시 ${config.minFixation}ms · px/deg ${pxPerDeg.toFixed(1)}`;
+      const rgbNote = state.rgb.enabled
+        ? ` · RGB 제외 ${excluded.size.toLocaleString('ko-KR')}샘플${
+            state.frame.samples.length ? ` (${pct(excluded.size / state.frame.samples.length)})` : ''
+          }`
+        : '';
+      $('resultSub').textContent = `${state.fileName || '데이터'} · I-VT ${config.threshold}°/s · 최소 응시 ${config.minFixation}ms · px/deg ${pxPerDeg.toFixed(1)}${rgbNote}`;
       renderKpis();
       renderAoiTable();
       renderStatsTable();
       renderParticipantsTable();
       renderPreviewSelectors();
+      renderRgbSummary();
+      renderRgbCompare(base, state.analysis);
       drawCanvas();
       $('dlCsv').disabled = false;
       $('dlJson').disabled = false;
@@ -1568,6 +2304,10 @@
       state.analysis = null;
       state.mapping = {};
       state.fileName = null;
+      state.rgb.samples = null;
+      state.rgb.excluded = new Set();
+      renderRgbSummary();
+      renderRgbCompare(null, null);
       renderFileMeta();
       $('previewWrap').classList.add('hidden');
       $('mappingGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">데이터를 불러오면 매핑 표가 나타납니다.</div>';
@@ -1626,6 +2366,128 @@
     $('dlCsv').addEventListener('click', downloadCsv);
     $('dlJson').addEventListener('click', downloadJson);
 
+    /* --- stimulus upload + RGB filter ---------------------------------- */
+    const stimInput = $('stimInput');
+    const stimDrop = $('stimDropzone');
+    stimDrop.addEventListener('click', () => stimInput.click());
+    stimDrop.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        stimInput.click();
+      }
+    });
+    ['dragenter', 'dragover'].forEach((ev) =>
+      stimDrop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        stimDrop.classList.add('dragover');
+      })
+    );
+    ['dragleave', 'drop'].forEach((ev) =>
+      stimDrop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        stimDrop.classList.remove('dragover');
+      })
+    );
+    stimDrop.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const file = dt && dt.files && dt.files[0];
+      if (file) loadStimulusFile(file);
+    });
+    stimInput.addEventListener('change', () => {
+      if (stimInput.files && stimInput.files[0]) loadStimulusFile(stimInput.files[0]);
+      stimInput.value = '';
+    });
+    $('stimReset').addEventListener('click', () => {
+      setSyntheticStimulus();
+      toast('합성 자극으로 되돌렸습니다.');
+    });
+
+    $('videoPlay').addEventListener('click', toggleVideoPlay);
+    $('videoSeek').addEventListener('input', (e) => {
+      const st = stimCtl();
+      if (!st.video) return;
+      st.video.pause();
+      $('videoPlay').textContent = '▶';
+      seekVideo(Number(e.target.value) / 1000).then(() => {
+        renderStimPreview();
+        updateVideoTime();
+      });
+    });
+
+    $('rgbEnabled').addEventListener('change', (e) => setRgbEnabled(e.target.checked));
+    $('rgbTol').addEventListener('input', (e) => {
+      state.rgb.tolerance = Number(e.target.value);
+      $('rgbTolVal').textContent = e.target.value;
+      if (state.rgb.enabled) scheduleReclassify();
+    });
+    let offsetTimer = null;
+    $('rgbOffset').addEventListener('input', (e) => {
+      const value = Number(e.target.value) || 0;
+      state.rgb.offsetMs = value;
+      $('rgbOffsetVal').textContent = String(value);
+      clearTimeout(offsetTimer);
+      offsetTimer = setTimeout(() => {
+        if (state.rgb.enabled) sampleStimulusColors();
+      }, 350);
+    });
+    let bucketTimer = null;
+    $('rgbBucket').addEventListener('input', (e) => {
+      const value = Number(e.target.value);
+      state.rgb.bucketMs = value;
+      $('rgbBucketVal').textContent = String(value);
+      clearTimeout(bucketTimer);
+      bucketTimer = setTimeout(() => {
+        if (state.rgb.enabled) sampleStimulusColors();
+      }, 400);
+    });
+
+    const submitColor = () => {
+      const color = parseRgbInput($('rgbInput').value);
+      if (!color) {
+        toast('색을 읽을 수 없습니다. #000000 또는 0,0,0 형식으로 넣어 주세요.');
+        return;
+      }
+      addRgbColor(color);
+      $('rgbInput').value = '';
+    };
+    $('rgbAdd').addEventListener('click', submitColor);
+    $('rgbInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitColor();
+      }
+    });
+    document.querySelectorAll('.chip-btn[data-color]').forEach((btn) => {
+      btn.addEventListener('click', () => addRgbColor(parseRgbInput(btn.dataset.color)));
+    });
+    $('rgbEyedropper').addEventListener('click', () => setEyedropper(!state.rgb.eyedropper));
+
+    const stimCanvas = $('stimCanvas');
+    const canvasPoint = (event) => {
+      const rect = stimCanvas.getBoundingClientRect();
+      return {
+        fx: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+        fy: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+      };
+    };
+    stimCanvas.addEventListener('click', (event) => {
+      if (!state.rgb.eyedropper) return;
+      const { fx, fy } = canvasPoint(event);
+      const color = pickColorAt(fx, fy);
+      if (!color) {
+        toast('이 프레임에서 색을 읽을 수 없습니다. 재생 위치를 옮겨 보세요.');
+        return;
+      }
+      addRgbColor(color);
+      setEyedropper(false);
+    });
+    stimCanvas.addEventListener('mousemove', (event) => {
+      if (!state.rgb.eyedropper) return;
+      const { fx, fy } = canvasPoint(event);
+      const color = pickColorAt(fx, fy);
+      if (color) $('stimNote').textContent = `스포이드 · ${rgbHex(color)} (${color.r}, ${color.g}, ${color.b}) — 누르면 제외 목록에 추가됩니다`;
+    });
+
     window.addEventListener('resize', () => {
       // canvas is fixed-size; CSS scales it, nothing to redraw
     });
@@ -1634,6 +2496,7 @@
   /* ----------------------------------------------------------------- boot */
   function boot() {
     bind();
+    initRgb();
     renderAoiEditor(BANDS);
     try {
       loadDemo();
