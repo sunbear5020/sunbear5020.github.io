@@ -273,8 +273,8 @@ window.OLFACTRA_DATA = {
     "molecules": 43,
     "by_note": {
      "top": 13,
-     "middle": 16,
-     "base": 14
+     "middle": 15,
+     "base": 15
     },
     "by_family": {
      "citrus": 5,
@@ -1437,8 +1437,8 @@ window.OLFACTRA_DATA = {
     "floral": 0.1,
     "woody": 0.1
    },
-   "note": "middle",
-   "volatility": 0.481,
+   "note": "base",
+   "volatility": 0.2,
    "descriptor_ko": "발사믹 수지의 달콤한 고정향",
    "descriptor_en": "balsamic fixative, faintly sweet",
    "natural_sources": [

@@ -56,6 +56,14 @@
   function pct(n, d) { return fmt(n, d == null ? 0 : d) + "%"; }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function rounded(n) { return Math.round(n * 10) / 10; }
+  // Korean subject particle: pick by whether the last syllable has a final consonant
+  function josa(word, withFinal, withoutFinal) {
+    var w = String(word || "").trim();
+    if (!w) return withoutFinal;
+    var code = w.charCodeAt(w.length - 1);
+    if (code < 0xAC00 || code > 0xD7A3) return withoutFinal;
+    return ((code - 0xAC00) % 28) ? withFinal : withoutFinal;
+  }
   function byId(id) { return document.getElementById(id); }
   function on(el, ev, fn) { if (el) el.addEventListener(ev, fn); }
 
@@ -268,7 +276,7 @@
     var warnings = [];
     if (load > pt.load_max) warnings.push("부향률 " + fmt(load) + "%가 " + pt.name_ko + " 권장 상한(" + fmt(pt.load_max) + "%)을 넘습니다 — 향이 뭉개지고 자극 위험이 커집니다.");
     if (load < pt.load_min) warnings.push("부향률 " + fmt(load) + "%는 " + pt.name_ko + " 권장 하한(" + fmt(pt.load_min) + "%)보다 낮습니다 — 잔향이 거의 없습니다.");
-    if (capScale !== 1) warnings.push("노출 경로 보정: " + pt.name_ko + "은(는) 피부 도포 제품이 아니라 공간 확산·분무 제형이므로 상한을 ×" + fmt(capScale) + "로 완화해 판정했습니다. 환기·영유아·반려동물 주의는 완화되지 않습니다.");
+    if (capScale !== 1) warnings.push("노출 경로 보정: " + pt.name_ko + josa(pt.name_ko, "은", "는") + " 피부 도포 제품이 아니라 공간 확산·분무 제형이므로 상한을 ×" + fmt(capScale) + "로 완화해 판정했습니다. 환기·영유아·반려동물 주의는 완화되지 않습니다.");
     rows.forEach(function (r) {
       if (r.status === "over") warnings.push(r.m.name_ko + ": 완성품 " + fmt(r.finished, 3) + "% (적용 상한 " + fmt(r.cap) + "% = 피부 기준 " + fmt(r.capBase) + "% × " + fmt(capScale) + ") — " + fmt(r.ratio, 1) + "배 초과. 배합비를 줄이거나 부향률을 낮추세요.");
       else if (r.status === "caution") warnings.push(r.m.name_ko + ": 완성품 " + fmt(r.finished, 3) + "% — 적용 상한의 " + Math.round(r.ratio * 100) + "%. (" + r.m.cap_basis + ")");
@@ -374,22 +382,25 @@
       var norm = normalisedItems(accordItems(a));
       var rows = norm.map(function (it) {
         var m = MOL[it.id];
-        return '<li><span class="share">' + fmt(it.share) + "</span><b>" + esc(m.name_ko) + "</b>" +
+        return '<li><span class="share">' + fmt(it.share) + "%</span><b>" + esc(m.name_ko) + "</b>" +
           '<span class="note-tag" data-note="' + m.note + '">' + esc(NOTE_LABEL[m.note]) + "</span>" +
           '<span class="desc">' + esc(m.descriptor_ko) + "</span></li>";
       }).join("");
       var warns = p.report.warnings.slice();
       if (a.caution) warns.push(a.caution);
+      var reasons = p.reasons.length ? p.reasons : ["조건이 지정되지 않아 향조 균형과 노트 구조를 기준으로 제안했습니다"];
+      var hasScore = p.score > 0.5;
+      var scoreText = hasScore ? String(Math.round(p.score)) : "—";
       return '<article class="result-card' + (i === 0 ? " is-first" : "") + '">' +
         '<div class="result-head"><div>' +
-        '<p class="result-kicker">추천 ' + (i + 1) + " · " + esc(pt ? pt.name_ko : a.product_hint) + "</p>" +
+        '<p class="result-kicker">' + (hasScore ? "추천 " + (i + 1) : "균형 추천 " + (i + 1)) + " · " + esc(pt ? pt.name_ko : a.product_hint) + "</p>" +
         "<h3>" + esc(a.name_ko) + "<span>" + esc(a.name_en) + "</span></h3>" +
         '<p class="result-tagline">' + esc(a.tagline) + "</p></div>" +
-        '<div class="score"><b>' + Math.round(p.score) + '</b><span>match</span>' +
-        '<div class="score-bar"><i style="width:' + p.score.toFixed(0) + '%"></i></div></div></div>' +
+        '<div class="score"><b>' + scoreText + '</b><span>' + (hasScore ? "match" : "harmony") + '</span>' +
+        '<div class="score-bar"><i style="width:' + (hasScore ? p.score.toFixed(0) : "0") + '%"></i></div></div></div>' +
         notePyramidHtml(p.report.balance) +
         '<ul class="mat-list">' + rows + "</ul>" +
-        '<ul class="reasons">' + p.reasons.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul>" +
+        '<ul class="reasons">' + reasons.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul>" +
         (warns.length ? '<details class="warn"><summary>주의 ' + warns.length + "건</summary><ul>" +
           warns.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul></details>" : "") +
         '<p class="tiny-note">조화 지수 ' + p.report.harmony.toFixed(2) + " · " + esc(a.story) + "</p>" +
@@ -559,7 +570,8 @@
         '<td class="num">' + fmt(r.share) + '</td><td class="num">' + fmt(r.neatVol, 3) +
         '</td><td class="num">' + fmt(r.neatMass, 3) +
         '</td><td class="num">' + fmt(r.finished, 3) +
-        '</td><td class="num">' + fmt(r.cap) + '</td>' +
+        '</td><td class="num">' + fmt(r.capBase) + (f.pt.cap_scale !== 1 ?
+          ' <span style="color:var(--muted)">×' + fmt(f.pt.cap_scale) + "</span>" : "") + '</td>' +
         '<td><span class="status-pill ' + r.status + '">' +
         (r.status === "ok" ? "ok" : (r.status === "caution" ? "주의" : "초과")) + "</span></td></tr>";
     }).join("");
@@ -723,7 +735,7 @@
       return '<button type="button" class="atlas-card' + (state.atlas.selected === e.id ? " is-on" : "") +
         '" data-entry="' + esc(e.id) + '"><span class="ac-top"><span class="ac-cat">' + esc(e.category_label) +
         '</span><span>' + esc(yearLabel(e.year)) + "</span></span><b>" + esc(e.name_ko) + "</b>" +
-        "<em>" + esc(e.botanical) + "</em>" +
+        (e.botanical && e.botanical !== "—" ? "<em>" + esc(e.botanical) + "</em>" : "") +
         '<span class="ac-region">' + esc(e.region) + "</span>" +
         '<span class="ac-mol">' + esc(mols) + "</span></button>";
     }).join("") || '<p class="placeholder">검색 결과가 없습니다.</p>';
@@ -876,11 +888,13 @@
     ctx.lineWidth = 1;
     ctx.font = "10px ui-monospace, monospace";
     ctx.fillStyle = "#6B6A64";
+    ctx.textAlign = "right";
     [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
       var yy = y(v);
       ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(W - pad.r, yy); ctx.stroke();
-      ctx.fillText(v.toFixed(2), 8, yy + 3);
+      ctx.fillText(v.toFixed(2), pad.l - 8, yy + 3);
     });
+    ctx.textAlign = "left";
     [100, 136, 170, 204, 238].forEach(function (mw) {
       if (mw > maxW) return;
       var xx = x(mw);
@@ -899,10 +913,13 @@
     });
 
     ctx.fillStyle = "#6B6A64";
-    ctx.fillText("분자량 (g/mol) →", W / 2 - 42, H - 6);
+    ctx.textAlign = "center";
+    ctx.fillText("분자량 (g/mol) →", pad.l + (W - pad.l - pad.r) / 2, H - 6);
+    ctx.textAlign = "left";
     ctx.save();
-    ctx.translate(12, H / 2 + 30);
+    ctx.translate(13, H / 2 + 34);
     ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
     ctx.fillText("휘발성 (1 = 빠름) →", 0, 0);
     ctx.restore();
 
