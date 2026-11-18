@@ -11,7 +11,7 @@
 <meta property="og:description" content="공개 데이터 기반 향 추천 · 배합 계산 · 향의 역사 · 분자 탐색. 100% 브라우저 실행, MIT 오픈소스.">
 <meta property="og:url" content="https://sunbear5020.github.io/olfactra/">
 <meta property="og:locale" content="ko_KR">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=8">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141413'/%3E%3Cpath d='M16 5.5 25.5 11v10L16 26.5 6.5 21V11Z' fill='none' stroke='%23FAF9F5' stroke-width='1.4'/%3E%3Ccircle cx='16' cy='16' r='3.1' fill='%23D97757'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -208,8 +208,50 @@
         <span class="module-tag">OLFACTRA MOLECULE</span>
         <h2 id="h-molecule">분자 · 향조 지도</h2>
         <p>가로축은 분자량, 세로축은 휘발성(빠른 탑 → 느린 베이스)이고 색이 대표 향조입니다.
-          점을 누르면 구조·물성·유사 분자·조화 점수가 열립니다.</p>
+          점을 누르면 구조·물성·유사 분자·조화 점수가 열립니다. 아래 3D 뷰어에서 실제 원자 좌표와
+          후각 수용체 포켓 속 결합 모형을 함께 확인할 수 있습니다.</p>
       </div>
+
+      <article class="card mol3d-card">
+        <div class="card-head">
+          <span class="card-num">05</span>
+          <div><h3 class="card-title">3D 구조 · 후각 수용체 결합</h3>
+            <p class="card-desc">RDKit ETKDG·MMFF94s로 생성한 실제 3차원 좌표를 돌려 보고,
+              7회 관통 나선 포켓에 분자가 들어가는 과정과 잔기 접촉(수소결합·소수성·π)을 확인합니다.</p></div>
+        </div>
+        <div class="mol3d-bar">
+          <div class="seg" role="group" aria-label="3D 보기 모드">
+            <button type="button" class="seg-btn is-on" data-mol3d-mode="molecule">분자 3D</button>
+            <button type="button" class="seg-btn" data-mol3d-mode="binding">수용체 결합</button>
+          </div>
+          <label class="mol3d-field" id="mol3d-receptor-wrap" hidden>
+            <span>수용체</span><select id="mol3d-receptor" class="input"></select>
+          </label>
+          <label class="mol3d-field"><span>분자</span><select id="mol3d-molecule" class="input"></select></label>
+          <button type="button" class="btn ghost small is-on" id="mol3d-features">작용기점</button>
+          <button type="button" class="btn ghost small is-on" id="mol3d-spin">자동 회전</button>
+          <button type="button" class="btn small" id="mol3d-dock" hidden>결합 애니메이션</button>
+          <button type="button" class="btn ghost small" id="mol3d-reset">시점 초기화</button>
+        </div>
+        <div class="mol3d-stage">
+          <canvas id="mol3d-canvas" role="img" aria-label="분자 3D 구조 및 후각 수용체 결합 모형"></canvas>
+          <div class="mol3d-hud">
+            <span id="mol3d-title"></span>
+            <span id="mol3d-hint" class="mono"></span>
+          </div>
+          <div class="mol3d-badge" id="mol3d-evidence" hidden></div>
+        </div>
+        <div class="mol3d-grid">
+          <div class="mol3d-panel" id="mol3d-info"></div>
+          <div class="mol3d-panel" id="mol3d-interactions"></div>
+        </div>
+        <p class="mol3d-boundary">
+          <b>과학적 경계</b> — 이 결합 모형은 Class A GPCR 후각 수용체의 <b>공개된 구조 원리</b>(7회 관통 나선 다발)를
+          바탕으로 한 교육·탑색용 <b>모식적 도킹</b>입니다. 잔기는 Ballesteros–Weinstein 번호로 표시한 모식 잔기이며
+          PDB 원자 좌표가 아니고, 표시된 거리도 그 모식 좌표에서 계산한 값입니다. 실제 wet-lab 결합 친화도(Kd·EC50)나
+          임상·독성 검증을 대체하지 않습니다. 문헌 실측 반응이 있는 조합만 “문헌 보고 활성”으로 표시합니다.
+        </p>
+      </article>
       <div class="grid">
         <article class="card span-7">
           <div class="canvas-wrap">
@@ -268,7 +310,8 @@
   </div>
 </footer>
 
-<script src="data.js?v=4"></script>
-<script src="app.js?v=6"></script>
+<script src="data.js?v=6"></script>
+<script src="mol3d.js?v=3"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

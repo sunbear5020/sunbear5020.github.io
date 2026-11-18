@@ -205,7 +205,44 @@
       Object.keys(sn).forEach(function (n) { noteFit += (bal[n] || 0) * sn[n]; });
       score += Math.max(0, noteFit) * 1.5; total += 1.5;
     }
-    return { score: total ? Math.min(100, 100 * score / total) : 0, reasons: reasons };
+    // measured pleasantness of the single molecules (Pyrfume / Keller 2016) —
+    // the same small, documented prior the Python engine applies
+    var prior = hedonicPrior(accord.materials);
+    if (prior) {
+      total += HEDONIC_WEIGHT;
+      score += prior.value * HEDONIC_WEIGHT;
+      reasons.push("구성 분자 " + prior.measured.length + "종(비중 " + Math.round(prior.coverage * 100) +
+        "%)의 실측 쾌적도 평균 " + Math.round(prior.mean) + "/100 — Keller & Vosshall 2016");
+    }
+    return { score: total ? Math.min(100, 100 * score / total) : 0, reasons: reasons, prior: prior };
+  }
+
+  var HEDONIC_WEIGHT = 1.2;
+  var HEDONIC_MIN_COVERAGE = 0.15;
+
+  /** weighted pleasantness prior over the measured single molecules (Pyrfume) */
+  function hedonicPrior(materials) {
+    var total = 0, weighted = 0, weight = 0, measured = [];
+    Object.keys(materials).forEach(function (mid) {
+      var sh = Number(materials[mid]) || 0;
+      if (sh <= 0) return;
+      total += sh;
+      var m = MOL[mid];
+      var pyr = m && m.pyrfume;
+      if (!pyr || pyr.pleasantness == null) return;
+      measured.push({ id: mid, share: sh, pleasantness: pyr.pleasantness });
+      weighted += pyr.pleasantness * sh; weight += sh;
+    });
+    if (!weight || !total) return null;
+    var cov = weight / total;
+    if (cov < HEDONIC_MIN_COVERAGE) return null;
+    var mean = weighted / weight;
+    return {
+      value: clamp((mean - 30) / 60, 0, 1),
+      mean: mean,
+      coverage: cov,
+      measured: measured
+    };
   }
 
   function recommend(sel, limit, exclude) {
@@ -214,7 +251,7 @@
       var s = scoreAccord(a, sel);
       var items = Object.keys(a.materials).map(function (id) { return { id: id, share: a.materials[id] }; });
       var rep = blendReport(items);
-      return { accord: a, score: s.score, reasons: s.reasons, report: rep };
+      return { accord: a, score: s.score, reasons: s.reasons, report: rep, prior: s.prior };
     }).filter(Boolean);
     ranked.sort(function (a, b) { return (b.score - a.score) || (b.report.harmony - a.report.harmony); });
     var picked = [], seen = [];
@@ -360,6 +397,80 @@
     });
   }
 
+  /* ------------------------------------------------------- Pyrfume evidence */
+  function numOrNa(v) {
+    return (v == null) ? '<span class="na">미측정</span>' : '<span class="num">' + fmt(v, 1) + "</span>";
+  }
+
+  function doiLinks() {
+    var src = (D.meta.pyrfume && D.meta.pyrfume.sources) || {};
+    return Object.keys(src).map(function (k) {
+      var s = src[k];
+      return '<a href="https://doi.org/' + esc(s.doi) + '" target="_blank" rel="noopener">' +
+        esc(s.label) + "</a>";
+    }).join("") + '<a href="https://github.com/pyrfume/pyrfume-data" target="_blank" rel="noopener">Pyrfume (MIT)</a>';
+  }
+
+  function accordEvidenceHtml(a, prior) {
+    var ids = Object.keys(a.materials).filter(function (id) { return a.materials[id] > 0 && MOL[id]; });
+    if (!ids.length) return "";
+    var total = ids.reduce(function (s, id) { return s + a.materials[id]; }, 0) || 1;
+    var rows = ids.map(function (id) {
+      var m = MOL[id], p = m.pyrfume || {};
+      var share = a.materials[id] / total;
+      var terms = (p.dravnieks || []).slice(0, 3).map(function (t) {
+        return t.term_ko ? t.term_ko : t.term.toLowerCase();
+      }).join(" · ");
+      return '<div class="pyr-row"><b>' + esc(m.name_ko) +
+        (terms ? '<span class="pyr-terms">' + esc(terms) + "</span>" : "") + "</b>" +
+        '<span class="num">' + Math.round(share * 100) + "%</span>" +
+        numOrNa(p.pleasantness) + numOrNa(p.intensity) + numOrNa(p.familiarity) + "</div>";
+    }).join("");
+    var measured = ids.filter(function (id) { var p = MOL[id].pyrfume || {}; return p.pleasantness != null; }).length;
+    var summary = measured ?
+      "Keller 실측 " + measured + "/" + ids.length + "분자" + (prior ? " · 평균 " + Math.round(prior.mean) + "/100" : "") :
+      "실측값 없음";
+    return '<details class="pyr"><summary><span class="pyr-badge">학술 데이터 근거</span>' +
+      '<span class="pyr-cov">Pyrfume · ' + summary + '</span></summary>' +
+      '<div class="pyr-body">' +
+      '<div class="pyr-row head"><span>구성 분자</span><span class="num">비중</span>' +
+      '<span class="num">쾌적도</span><span class="num">강도</span><span class="num">친숙도</span></div>' +
+      rows +
+      '<p class="pyr-note">쾌적도·강도·친숙도는 Keller & Vosshall 2016의 <b>단품</b> 평균 평점(0–100)이고,' +
+      ' 기술어는 Dravnieks 1985 프로파일입니다. 혼합물의 향은 성분의 합이 아니므로(마스킹·상승·적응)' +
+      ' 이 값은 완성된 아코드의 냄새·쾌적도를 예측하지 않습니다. 측정값이 없는 분자는 <b>미측정</b>으로 두었습니다.</p>' +
+      '<div class="pyr-src">' + doiLinks() + "</div></div></details>";
+  }
+
+  function moleculePyrfumeHtml(m) {
+    var p = m.pyrfume || {};
+    if (!p.measured) {
+      return '<div class="ad-section"><h4>학술 후각 데이터 · Pyrfume</h4>' +
+        '<p class="tiny-note">Pyrfume 공개 데이터와 PubChem CID로 매칭되는 <b>실측값이 없습니다</b> ' +
+        '(43개 중 23개가 매칭됨). 이 분자의 향 설명은 일반 정유·화학 문헌과 조향 관행에 근거한 서술입니다.</p>' +
+        '<div class="pyr-src">' + doiLinks() + "</div></div>";
+    }
+    var bars = "";
+    [["쾌적도", p.pleasantness], ["강도", p.intensity], ["친숙도", p.familiarity]].forEach(function (kv) {
+      if (kv[1] == null) return;
+      bars += '<div class="pyr-metric"><span>' + kv[0] + '</span><div class="bar"><i style="width:' +
+        Math.max(2, kv[1]) + '%"></i></div><em>' + Math.round(kv[1]) + "</em></div>";
+    });
+    var terms = (p.dravnieks || []).slice(0, 5).map(function (t) {
+      return '<span class="pyr-term">' + esc(t.term_ko || t.term.toLowerCase()) + " " + Math.round(t.use) + "</span>";
+    }).join("");
+    var ors = (p.receptors || []).slice(0, 6).map(function (r) {
+      return '<span class="pyr-term"' + (r.dose_response ? ' style="border-color:var(--accent)"' : "") +
+        ">" + esc(r.gene) + (r.dose_response ? " ✓" : "") + "</span>";
+    }).join("");
+    return '<div class="ad-section"><h4>학술 후각 데이터 · Pyrfume</h4>' + bars +
+      (terms ? '<p class="tiny-note" style="margin-top:8px">Dravnieks 1985 대표 기술어 (사용도 %)</p><div class="pyr-terms">' + terms + "</div>" : "") +
+      (ors ? '<p class="tiny-note" style="margin-top:8px">Mainland 2015 반응 수용체 (' + p.receptors_tested + '개 중, ✓ = 농도–반응 통과)</p><div class="pyr-terms">' + ors + "</div>" : "") +
+      '<p class="tiny-note">' + (p.raters ? "Keller 2016 평정자 최대 " + p.raters + "명 · " : "") +
+      "단품 측정값이며 혼합물의 향을 예측하지 않습니다.</p>" +
+      '<div class="pyr-src">' + doiLinks() + "</div></div>";
+  }
+
   function notePyramidHtml(balance) {
     return '<div class="note-pyramid">' + NOTES.map(function (n) {
       var v = (balance[n.id] || 0) * 100;
@@ -401,6 +512,7 @@
         notePyramidHtml(p.report.balance) +
         '<ul class="mat-list">' + rows + "</ul>" +
         '<ul class="reasons">' + reasons.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ul>" +
+        accordEvidenceHtml(a, p.prior) +
         (warns.length ? '<details class="warn"><summary>주의 ' + warns.length + "건</summary><ul>" +
           warns.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul></details>" : "") +
         '<p class="tiny-note">조화 지수 ' + p.report.harmony.toFixed(2) + " · " + esc(a.story) + "</p>" +
@@ -825,6 +937,7 @@
       "<dt>PubChem</dt><dd><a href=\"https://pubchem.ncbi.nlm.nih.gov/compound/" + m.pubchem_cid +
       "\" target=\"_blank\" rel=\"noopener\">CID " + m.pubchem_cid + "</a></dd>" +
       "</dl>" +
+      moleculePyrfumeHtml(m) +
       '<div class="ad-section"><h4>유사 향조</h4><ul class="similar">' + sims.map(function (s) {
         return "<li><span class=\"sc\">" + s.s.toFixed(2) + '</span><button type="button" data-sim="' + esc(s.m.id) +
           '">' + esc(s.m.name_ko) + "</button><span class=\"mono\" style=\"color:var(--muted)\">" + esc(NOTE_LABEL[s.m.note]) + "</span></li>";
@@ -851,6 +964,8 @@
       }
       saveStudio(); renderStudio(); setTab("studio");
     });
+
+    if (window.OLFACTRA3D) window.OLFACTRA3D.select(m.id);
   }
 
   /* --------------------------------------------------------- canvas: map */
@@ -1163,6 +1278,17 @@
     renderMoleculeDetail();
     bindMap();
     bindMatrix();
+
+    if (window.OLFACTRA3D) {
+      window.OLFACTRA3D.init();
+      window.OLFACTRA3D.select(state.mol.selected);
+      window.OLFACTRA3D.onSelect(function (mid) {
+        state.mol.selected = mid;
+        state.mol.cell = null;
+        renderMoleculeDetail();
+        drawMoleculeViews();
+      });
+    }
 
     var hash = (location.hash || "").replace("#", "");
     setTab(["id", "studio", "atlas", "molecule"].indexOf(hash) >= 0 ? hash : "id", false);
