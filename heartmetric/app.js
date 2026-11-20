@@ -1420,7 +1420,7 @@
     const merged = new Map();
     const order = [];
     const streamReports = prepared.map((stream) => ({
-      name: stream.name, role: stream.role, rows: stream.rows.length, matched_rows: 0, unmatched_rows: 0, match_rate_pct: null,
+      name: stream.name, role: stream.role, rows: 0, matched_rows: 0, unmatched_rows: 0, match_rate_pct: null,
     }));
     prepared.forEach((stream) => {
       const buckets = new Map();
@@ -1430,6 +1430,8 @@
         if (!buckets.has(key)) buckets.set(key, []);
         buckets.get(key).push(row);
       });
+      const entry = streamReports.find((item) => item.name === stream.name);
+      if (entry) entry.rows = buckets.size;
       buckets.forEach((group, key) => {
         if (!merged.has(key)) {
           const [subject, date] = key.split('||');
@@ -1714,8 +1716,11 @@
     cards[0].innerHTML = `<span class="stat-label">평균 혈압</span><span class="stat-value">${fmt(stats.sbp, 0)} / ${fmt(stats.dbp, 0)}</span><span class="stat-note">SBP / DBP mmHg · n=${stats.sbpN}</span>`;
     cards[1].innerHTML = `<span class="stat-label">MAP · 맥압</span><span class="stat-value">${fmt(stats.map, 1)} <span style="font-size:14px;color:var(--muted)">/ ${fmt(stats.pp, 1)}</span></span><span class="stat-note">mmHg · DBP+(SBP−DBP)/3</span>`;
 
+    const dailyMode = state.alignment && state.alignment.mode === 'daily';
     const dip = stats.dipping;
-    if (dip.available) {
+    if (dailyMode) {
+      cards[2].innerHTML = `<span class="stat-label">야간 하강률</span><span class="stat-value">—</span><span class="stat-note">일별 집계 모드 — 야간/주간 구분 없음</span>`;
+    } else if (dip.available) {
       const good = dip.category === 'normal dipping';
       cards[2].innerHTML = `<span class="stat-label">야간 하강률</span><span class="stat-value">${dip.value.toFixed(1)}%</span><span class="stat-note"><span class="${good ? 'tone-good' : 'tone-warn'}">${dip.category}</span> · 주 ${dip.nDay}/야 ${dip.nNight}</span>`;
     } else {
@@ -1723,7 +1728,9 @@
     }
 
     const rec = stats.recovery;
-    if (rec.available) {
+    if (dailyMode) {
+      cards[3].innerHTML = `<span class="stat-label">HRV 회복 지수</span><span class="stat-value">—</span><span class="stat-note">일별 집계 모드 — 야간/주간 구분 없음</span>`;
+    } else if (rec.available) {
       const good = rec.index >= 95;
       cards[3].innerHTML = `<span class="stat-label">HRV 회복 지수</span><span class="stat-value">${rec.index.toFixed(0)}</span><span class="stat-note"><span class="${good ? 'tone-good' : 'tone-warn'}">${rec.band}</span> · ${rec.baseline}</span>`;
     } else {
@@ -2063,8 +2070,9 @@
     $('corrTitle').textContent = `${METRIC_LABELS[state.corrX] || state.corrX} × ${METRIC_LABELS[state.corrY] || state.corrY}`;
     if (stat.available) {
       const strength = Math.abs(stat.r) < 0.2 ? '거의 없음' : Math.abs(stat.r) < 0.4 ? '약함' : Math.abs(stat.r) < 0.6 ? '중간' : '강함';
+      const pText = !Number.isFinite(stat.slopeP) ? 'p=—' : stat.slopeP < 0.0001 ? 'p<0.0001' : `p=${stat.slopeP.toFixed(4)}`;
       $('corrNote').textContent = `Pearson r = ${stat.r.toFixed(2)} (${strength}, ${stat.r >= 0 ? '양의' : '음의'} 상관) · `
-        + `Spearman ρ = ${stat.rho.toFixed(2)} · 기울기 ${round(stat.slope, 3)} (p=${fmtP(stat.slopeP)}) · n = ${stat.n} · 상관은 인과가 아닙니다.`;
+        + `Spearman ρ = ${stat.rho.toFixed(2)} · 기울기 ${round(stat.slope, 3)} (${pText}) · n = ${stat.n} · 상관은 인과가 아닙니다.`;
     } else {
       $('corrNote').textContent = '상관을 계산할 공통 측정값이 부족합니다.';
     }
