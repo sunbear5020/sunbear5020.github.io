@@ -3,29 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HEARTMETRIC — Environmental Cardiovascular Response Platform · FEI · HEL Lab</title>
-<meta name="description" content="HEARTMETRIC은 커프 혈압(Apple Health)·웨어러블 심박/HRV(Oura·Apple Watch)·환경 노출(기온·PM2.5·녹지)을 하나의 표로 결합해 도시 가로와 산림치유 조건의 심혈관 반응을 비교하는 연구용 오픈소스 워크벤치입니다. 100% 브라우저 실행, MIT License, FEI · HEL Lab.">
-<meta name="keywords" content="HEARTMETRIC, 혈압, HRV, 심박변이도, 산림치유, 도시숲, 환경노출, 오픈소스, 경상국립대학교, FEI HEL">
+<title>HEARTMETRIC v0.2 — Environmental Cardiovascular Response Platform · FEI · HEL Lab</title>
+<meta name="description" content="HEARTMETRIC v0.2은 커프 혈압(Apple Health)·웨어러블 심박/HRV(Oura·Apple Watch)·환경 노출(기온·PM2.5·녹지)을 시간 허용 오차로 결합하고, 피험자 대응표본 비교와 환경 상관(ρ·회귀)을 계산하는 연구용 오픈소스 워크벤치입니다. 100% 브라우저 실행, MIT License, FEI · HEL Lab.">
+<meta name="keywords" content="HEARTMETRIC, 혈압, HRV, 심박변이도, 산림치유, 도시숲, 환경노출, 시계열 결합, 대응표본, 오픈소스, 경상국립대학교, FEI HEL">
 <meta name="theme-color" content="#FAF9F5">
 <meta property="og:type" content="website">
-<meta property="og:title" content="HEARTMETRIC — Where a pulse meets a place">
-<meta property="og:description" content="Cuff blood pressure × wearable HRV × environmental exposure, joined on one table. Clean-room MIT research workbench, 100% in-browser.">
+<meta property="og:title" content="HEARTMETRIC v0.2 — Where a pulse meets a place">
+<meta property="og:description" content="Cuff blood pressure × wearable HRV × environmental exposure, aligned by tolerance and analysed per subject. Clean-room MIT research workbench, 100% in-browser.">
 <meta property="og:url" content="https://sunbear5020.github.io/heartmetric/">
 <meta property="og:site_name" content="HEARTMETRIC · FEI · HEL Lab">
 <link rel="canonical" href="https://sunbear5020.github.io/heartmetric/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141413'/%3E%3Cpath d='M6 17h4.2l2.1-5.4 3.1 10.2 2.4-6.1 1.7 2.6H26' fill='none' stroke='%23FAF9F5' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='26' cy='18.3' r='2.2' fill='%23D97757'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "HEARTMETRIC",
   "alternateName": "Environmental Cardiovascular Response Platform",
+  "softwareVersion": "0.2.0",
   "applicationCategory": "HealthApplication",
   "operatingSystem": "Web browser",
   "url": "https://sunbear5020.github.io/heartmetric/",
   "license": "https://opensource.org/licenses/MIT",
-  "description": "Clean-room MIT research workbench joining cuff blood pressure, wearable heart rate variability and environmental exposure on one standard table.",
+  "description": "Clean-room MIT research workbench that aligns cuff blood pressure, wearable heart rate variability and environmental exposure by time tolerance and analyses them per subject.",
   "author": {
     "@type": "Organization",
     "name": "FEI · HEL Lab, Gyeongsang National University",
@@ -57,10 +58,11 @@
       <a href="#summary">요약</a>
       <a href="#compare">비교</a>
       <a href="#charts">차트</a>
+      <a href="#methodology">지표</a>
       <a href="#python">Python</a>
       <a href="#license">라이선스</a>
     </nav>
-    <span class="header-pill"><b>MIT</b> · v0.1.0 Core</span>
+    <span class="header-pill"><b>MIT</b> · v0.2.0</span>
   </div>
 </header>
 
@@ -69,20 +71,20 @@
   <!-- hero ------------------------------------------------------------- -->
   <section class="hero">
     <div class="wrap">
-      <div class="eyebrow">Clean-room · vendor-neutral · open source</div>
+      <div class="eyebrow">Clean-room · vendor-neutral · open source · v0.2</div>
       <h1>심박과 숲을,<br><em>하나의 표</em>로.</h1>
       <p class="lead">
-        커프 혈압계에서 나온 <b>SBP / DBP</b>, 링·워치의 <b>심박과 HRV</b>,
-        그리고 걷던 곳의 <b class="nowrap">기온 · PM2.5 · 녹지</b>를 시각으로 결합합니다.
-        도시 가로와 산림치유 조건의 심혈관 반응을 같은 정의로 계산하고,
-        조건 간 차이를 효과크기와 함께 정리합니다.
+        커프 혈압계의 <b>SBP / DBP</b>, 링·워치의 <b>심박과 HRV</b>,
+        그리고 걷던 곳의 <b class="nowrap">기온 · PM2.5 · 녹지</b>를
+        <b>시간 허용 오차</b>로 결합합니다. 도시 가로와 산림치유 조건의 심혈관 반응을
+        같은 정의로 계산하고, 같은 사람의 두 조건은 <b>대응표본</b>으로 비교합니다.
         파일은 <b>브라우저 안에서만</b> 처리되며 어디에도 전송되지 않습니다.
       </p>
       <div class="hero-badges">
         <span class="badge"><span class="dot"></span>100% 브라우저 실행 · 서버 불필요</span>
+        <span class="badge plain">다중 스트림 결합 · 허용 오차 선택</span>
+        <span class="badge plain">대응표본 · d_z · 순열검정</span>
         <span class="badge plain">클린룸 MIT 라이선스</span>
-        <span class="badge plain">Oura · Apple 비제휴</span>
-        <span class="badge plain">합성 데모 데이터 내장</span>
       </div>
       <div class="boundary">
         <span class="boundary-tag">경계</span>
@@ -90,7 +92,7 @@
           <b>Oura Ring은 mmHg 혈압을 제공하지 않습니다.</b> Oura API v2에 혈압 엔드포인트가 없어
           HEARTMETRIC은 <b>커프 측정만을 혈압의 근거</b>로 삼고, 링·워치는 심박·HRV를 담당합니다.
           Apple Health는 HRV를 SDNN으로, Oura는 RMSSD로 보고하므로 둘을 서로 변환하지 않고
-          어느 쪽이 있는지 표시합니다.
+          어느 쪽이 있는지 표시합니다. 결합은 값을 옮기는 일이 아니라 <b>열을 시간축에 나란히 놓는 일</b>입니다.
         </p>
       </div>
     </div>
@@ -104,26 +106,52 @@
         <div class="card-head">
           <span class="card-num">01</span>
           <div>
-            <h2 class="card-title">데이터 불러오기</h2>
-            <p class="card-desc">CSV · JSON · Apple Health XML. 헤더와 단위를 자동으로 해석합니다.</p>
+            <h2 class="card-title">데이터 불러오기 · 결합</h2>
+            <p class="card-desc">CSV · JSON · 표준 테이블. 여러 파일을 함께 올려 시간 허용 오차로 결합합니다.</p>
           </div>
         </div>
 
         <div class="dropzone" id="dropzone" tabindex="0" role="button"
-             aria-label="CSV, JSON 또는 XML 파일 선택 또는 끌어놓기">
+             aria-label="CSV 또는 JSON 파일 여러 개를 선택하거나 끌어놓기">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
           <strong>파일을 끌어놓거나 눌러서 선택</strong>
-          <span>표준 테이블 · Apple Health export · Oura sleep JSON</span>
-          <div class="hint">.csv · .tsv · .json · .xml</div>
+          <span>혈압 · 웨어러블 · 환경 CSV를 각각 또는 한 번에</span>
+          <div class="hint">.csv · .tsv · .json · 여러 개 선택 가능</div>
         </div>
-        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.json,.xml" hidden>
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.json" multiple hidden>
+
+        <div class="files-box">
+          <div class="files-head">
+            <span>불러온 스트림 <b id="fileCount">0</b></span>
+            <button class="link-mini" id="clearFilesBtn" type="button">비우기</button>
+          </div>
+          <ul class="file-list" id="fileList">
+            <li class="muted">아직 불러온 파일이 없습니다.</li>
+          </ul>
+          <div class="align-controls">
+            <label class="field-label" for="toleranceSelect">허용 오차</label>
+            <select id="toleranceSelect">
+              <option value="0">0분 (같은 시각만)</option>
+              <option value="15">±15분</option>
+              <option value="30" selected>±30분</option>
+              <option value="60">±60분</option>
+              <option value="120">±120분</option>
+              <option value="daily">일별 집계</option>
+            </select>
+            <button class="btn bronze small" id="mergeBtn" type="button">스트림 결합</button>
+          </div>
+          <div class="align-report" id="alignReport">
+            <p class="muted">파일을 2개 이상 올리면 스트림별 결합 행 수와 매칭률을 보여줍니다.</p>
+          </div>
+        </div>
 
         <div class="btn-row">
-          <button class="btn bronze" id="demoBtn" type="button">합성 데모 · 도시 vs 숲 14일</button>
-          <button class="btn secondary small" id="resetBtn" type="button">초기화</button>
+          <button class="btn secondary small" id="demoBtn" type="button">데모 · 도시 vs 숲 14일</button>
+          <button class="btn secondary small" id="cohortBtn" type="button">데모 · 코호트 6인</button>
+          <button class="btn ghost small" id="resetBtn" type="button">초기화</button>
         </div>
 
         <div class="file-meta" id="fileMeta">아직 불러온 파일이 없습니다.</div>
@@ -140,7 +168,7 @@
           <span class="card-num">QC</span>
           <div>
             <h2 class="card-title">데이터 품질 점검</h2>
-            <p class="card-desc">생리적 범위 · 모순 쌍 · 중복 · 공백. 삭제는 사유와 함께 기록됩니다.</p>
+            <p class="card-desc">생리적 범위 · 모순 쌍 · 중복 · 공백 · 결합 상태. 삭제는 사유와 함께 기록됩니다.</p>
           </div>
           <span class="status-pill" id="qcStatus">대기</span>
         </div>
@@ -158,12 +186,12 @@
           <p class="muted">데모를 불러오면 세 가지 인위적 결함(영점 측정·뒤집힌 혈압 쌍·중복 동기화)이 어떻게 처리되는지 볼 수 있습니다.</p>
         </div>
 
-        <details class="preview-box">
+        <details class="preview-box" open>
           <summary>정리된 표준 테이블 미리보기</summary>
           <div class="table-scroll">
             <table class="data-table" id="previewTable">
-              <thead><tr><th>timestamp</th><th>condition</th><th>SBP</th><th>DBP</th><th>HR</th><th>RMSSD</th><th>PM2.5</th><th>flags</th></tr></thead>
-              <tbody><tr><td colspan="8" class="muted">—</td></tr></tbody>
+              <thead><tr><th>timestamp</th><th>subject</th><th>condition</th><th>SBP</th><th>DBP</th><th>HR</th><th>RMSSD</th><th>PM2.5</th><th>flags</th></tr></thead>
+              <tbody><tr><td colspan="9" class="muted">—</td></tr></tbody>
             </table>
           </div>
         </details>
@@ -184,7 +212,7 @@
           <div class="stat-card"><span class="stat-label">평균 혈압</span><span class="stat-value">—</span><span class="stat-note">SBP / DBP</span></div>
           <div class="stat-card"><span class="stat-label">MAP · 맥압</span><span class="stat-value">—</span><span class="stat-note">mmHg</span></div>
           <div class="stat-card"><span class="stat-label">야간 하강률</span><span class="stat-value">—</span><span class="stat-note">22:00–06:00</span></div>
-          <div class="stat-card"><span class="stat-label">HRV 회복 지수</span><span class="stat-value">—</span><span class="stat-note">야간/주간 RMSSD</span></div>
+          <div class="stat-card"><span class="stat-label">HRV 회복 지수</span><span class="stat-value">—</span><span class="stat-note">야간/주간 HRV</span></div>
           <div class="stat-card"><span class="stat-label">환경 노출</span><span class="stat-value">—</span><span class="stat-note">PM2.5 · 기온</span></div>
           <div class="stat-card"><span class="stat-label">환경 스트레스 지수</span><span class="stat-value">—</span><span class="stat-note">0–100 연구 지표</span></div>
         </div>
@@ -196,7 +224,7 @@
           <span class="card-num">03</span>
           <div>
             <h2 class="card-title">조건별 비교</h2>
-            <p class="card-desc">Welch t-test · Cohen's d · 95% 신뢰구간. A − B 방향으로 계산합니다.</p>
+            <p class="card-desc">Welch t-test 또는 subject_id 대응표본. A − B 방향으로 계산합니다.</p>
           </div>
           <div class="pair-select">
             <label>A <select id="groupA"></select></label>
@@ -206,9 +234,11 @@
           </div>
         </div>
 
+        <p class="pair-mode" id="pairModeNote">대응표본을 켜면 같은 피험자의 두 조건을 짝지어 비교합니다.</p>
+
         <div class="table-scroll">
           <table class="data-table compare-table" id="compareTable">
-            <thead>
+            <thead id="compareHead">
               <tr>
                 <th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th>
                 <th>Cohen's d</th><th>효과</th><th>p</th><th>95% CI</th>
@@ -226,7 +256,7 @@
           <span class="card-num">04</span>
           <div>
             <h2 class="card-title">시계열 · 환경 상관</h2>
-            <p class="card-desc">점은 측정 1회, 배경 띠는 조건(도시/숲) 구간입니다.</p>
+            <p class="card-desc">점은 측정 1회, 배경 띠는 조건(도시/숲) 구간입니다. 산점도는 회귀선과 ρ를 함께 보여줍니다.</p>
           </div>
           <span class="card-head-note" id="chartMeta">—</span>
         </div>
@@ -256,7 +286,7 @@
                 <select id="corrY" aria-label="세로축 지표"></select>
               </span>
             </figcaption>
-            <div class="canvas-box tall"><canvas id="corrChart" role="img" aria-label="환경 노출과 심혈관 지표의 산점도"></canvas></div>
+            <div class="canvas-box tall"><canvas id="corrChart" role="img" aria-label="환경 노출과 심혈관 지표의 산점도와 회귀선"></canvas></div>
             <p class="chart-note" id="corrNote">—</p>
           </figure>
         </div>
@@ -268,16 +298,18 @@
           <span class="card-num">05</span>
           <div>
             <h2 class="card-title">결과 내보내기</h2>
-            <p class="card-desc">표준 테이블과 분석 번들을 그대로 저장합니다.</p>
+            <p class="card-desc">재현에 필요한 것을 모두 담아 저장합니다.</p>
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn" id="exportCsv" type="button" disabled>정리된 CSV</button>
-          <button class="btn secondary" id="exportJson" type="button" disabled>분석 번들 JSON</button>
+          <button class="btn secondary small" id="exportCsv" type="button" disabled>정리된 CSV</button>
+          <button class="btn" id="exportJson" type="button" disabled>JSON 번들</button>
+          <button class="btn bronze" id="exportMd" type="button" disabled>Markdown 리포트</button>
         </div>
         <ul class="export-list">
-          <li><b>CSV</b> — QC를 통과한 표준 테이블(UTF-8 BOM, Excel에서 한글 바로 열림)</li>
-          <li><b>JSON</b> — 요약 · 조건 · 비교 · 일별 · 상관 · 시계열 전체</li>
+          <li><b>CSV</b> — QC를 통과한 표준 테이블(subject_id 포함, UTF-8 BOM)</li>
+          <li><b>JSON</b> — <code>schema_version 0.2.0</code> · 파라미터 · 정렬 보고 · 비교 · 상관 · 지표 정의</li>
+          <li><b>Markdown</b> — 6장 리포트: 품질 · 요약 · 비교 · 상관 · 조건별 평균 · 지표 정의와 경계</li>
           <li>Python 엔진은 같은 정의로 <b>.xlsx</b> 다중 시트 보고서까지 만듭니다.</li>
         </ul>
       </article>
@@ -299,10 +331,37 @@
         </div>
       </article>
 
-      <!-- 06 python ----------------------------------------------------- -->
-      <article class="card span-12" id="python">
+      <!-- 06 methodology ------------------------------------------------ -->
+      <article class="card span-12" id="methodology">
         <div class="card-head">
           <span class="card-num">06</span>
+          <div>
+            <h2 class="card-title">지표 정의 · 근거 경계</h2>
+            <p class="card-desc">실측(measured) · 파생(derived) · 탐색(exploratory)을 구분하고, 수식과 읽지 말아야 할 경계를 함께 적습니다.</p>
+          </div>
+          <span class="card-head-note" id="methodologyScope">—</span>
+        </div>
+        <div class="method-legend">
+          <span class="kind-badge kind-measured">measured</span> 기기가 기록한 값
+          <span class="kind-badge kind-derived">derived</span> 실측값의 결정론적 계산
+          <span class="kind-badge kind-exploratory">exploratory</span> 가중치·기준점을 고른 연구 요약
+        </div>
+        <div class="table-scroll">
+          <table class="data-table method-table" id="methodologyTable">
+            <thead><tr><th>지표</th><th>구분</th><th>단위</th><th>수식</th><th>경계</th></tr></thead>
+            <tbody><tr><td colspan="5" class="muted">데이터를 불러오면 이번 분석에 포함된 지표의 정의가 표시됩니다.</td></tr></tbody>
+          </table>
+        </div>
+        <details class="method-refs">
+          <summary>참고문헌 · 기준값</summary>
+          <ul id="methodRefs" class="ref-list"><li class="muted">—</li></ul>
+        </details>
+      </article>
+
+      <!-- 07 python ----------------------------------------------------- -->
+      <article class="card span-12" id="python">
+        <div class="card-head">
+          <span class="card-num">07</span>
           <div>
             <h2 class="card-title">Python 엔진 — 같은 정의, 같은 계산</h2>
             <p class="card-desc">워크벤치는 엔진의 정의를 옮긴 것입니다. 재현 연구는 Python으로.</p>
@@ -310,19 +369,23 @@
         </div>
         <div class="code-split">
           <pre class="code-block"><code><span class="c"># pip install -e ".[api,dev]"</span>
-<span class="k">from</span> heartmetric_core <span class="k">import</span> load_file, analyze, exporter
+<span class="k">from</span> heartmetric_core <span class="k">import</span> align_streams, analyze, exporter
 
-loaded = load_file(<span class="s">"apple_health_export.xml"</span>)
-bundle = analyze(loaded.frame, group_a=<span class="s">"forest"</span>, group_b=<span class="s">"urban"</span>)
+aligned = align_streams([
+    <span class="s">"cuff_bp.csv"</span>, <span class="s">"wearable.json"</span>, <span class="s">"environment.csv"</span>,
+], tolerance_minutes=<span class="s">30</span>)          <span class="c"># 여기와 같은 규칙</span>
 
-print(bundle[<span class="s">"summary"</span>][<span class="s">"dipping"</span>][<span class="s">"dipping_pct"</span>])
-exporter.save(bundle, <span class="s">"report.xlsx"</span>)   <span class="c"># 8 sheets</span></code></pre>
+bundle = analyze(aligned.frame, paired=<span class="s">True</span>)   <span class="c"># subject_id 대응표본</span>
+exporter.save(bundle, <span class="s">"report.xlsx"</span>)          <span class="c"># 10 sheets</span>
+exporter.to_markdown(bundle, <span class="s">"report.md"</span>)</code></pre>
           <div class="code-side">
             <p><b>CLI</b></p>
             <pre class="code-block small"><code>python -m heartmetric_core \
-  --demo -o report.xlsx</code></pre>
-            <p class="muted">45개 pytest · GitHub Actions CI · NumPy/Pandas 외 의존성 없음(통계 자체 구현)</p>
-            <p class="muted">합성 데모는 화면에서 자체 시드로 생성되므로 Python 데모와 소수점 단위에서 조금 다를 수 있습니다. 같은 파일을 넣으면 두 경로의 계산 정의는 동일합니다.</p>
+  -i bp.csv -i oura.json -i env.csv \
+  --merge --tolerance-minutes 30 \
+  -o report.md</code></pre>
+            <p class="muted"><b id="testCount">86</b>개 pytest · GitHub Actions CI · NumPy/Pandas 외 의존성 없음(통계 자체 구현)</p>
+            <p class="muted">합성 데모는 화면에서 자체 시드로 생성되므로 Python 데모와 소수점 단위에서 조금 다를 수 있습니다. 같은 파일·같은 허용 오차를 넣으면 두 경로의 계산 정의는 동일합니다.</p>
             <a class="link-btn" href="https://github.com/sunbear5020/heartmetric" target="_blank" rel="noopener">저장소 보기 ↗</a>
           </div>
         </div>
@@ -342,7 +405,7 @@ exporter.save(bundle, <span class="s">"report.xlsx"</span>)   <span class="c"># 
         </p>
         <p class="cite">
           FEI · HEL Lab, Gyeongsang National University. (2026).<br>
-          HEARTMETRIC: Environmental Cardiovascular Response Platform (v0.1.0) [Software].
+          HEARTMETRIC: Environmental Cardiovascular Response Platform (v0.2.0) [Software].
         </p>
       </div>
       <div>
@@ -374,7 +437,7 @@ exporter.save(bundle, <span class="s">"report.xlsx"</span>)   <span class="c"># 
       </span>
       <div>
         <p class="footer-name">HEARTMETRIC</p>
-        <p class="muted">Environmental Cardiovascular Response Platform</p>
+        <p class="muted">Environmental Cardiovascular Response Platform · v0.2.0</p>
       </div>
     </div>
     <div class="footer-meta">
@@ -387,6 +450,6 @@ exporter.save(bundle, <span class="s">"report.xlsx"</span>)   <span class="c"># 
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

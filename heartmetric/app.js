@@ -1,18 +1,27 @@
 /* =============================================================================
-   HEARTMETRIC — browser workbench
+   HEARTMETRIC — browser workbench · v0.2.0
    Clean-room, MIT · FEI · HEL Lab, Gyeongsang National University
    -----------------------------------------------------------------------------
    Everything here runs locally in the browser. No network calls, no uploads.
    The definitions mirror heartmetric_core (Python) so both produce the same
-   numbers from the same file:
-     loader  → parseDelimited / mapHeaders / standardize / parseTime
-     cleaner → cleanRows
-     metrics → addDerived / dipping / hrvRecovery / stressIndex / summarize
-     stats   → welch / pairedT / cohenD / tSf (incomplete beta, no libraries)
+   numbers from the same file and the same tolerance:
+
+     loader   → parseDelimited / mapHeaders / standardize / parseTime
+     cleaner  → cleanRows
+     metrics  → addDerived / environmentalLoad / dipping / hrvRecovery / stressIndex
+     align    → alignStreams (greedy nearest match, daily aggregation)
+     stats    → welch / pairedT / cohensDz / permutationP / signTest / subjectPairs
+     corr     → pearson / spearman / olsRegression
+     export   → buildBundle (schema 0.2.0) / markdownReport / cleaned CSV
+
    The demonstration series is generated in this file (100 % synthetic).
    ========================================================================== */
 (() => {
   'use strict';
+
+  const VERSION = '0.2.0';
+  const SCHEMA_VERSION = '0.2.0';
+  const NIGHT = { start: 22, end: 6 };
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -38,18 +47,26 @@
     const m = mean(arr);
     return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));
   };
-  const median = (arr) => {
-    if (!arr.length) return NaN;
-    const a = arr.slice().sort((x, y) => x - y);
-    const m = Math.floor(a.length / 2);
-    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
-  };
   const values = (rows, key) => rows.map((r) => r[key]).filter((v) => Number.isFinite(v));
+  const round = (value, digits = 3) => {
+    if (!Number.isFinite(value)) return null;
+    const factor = 10 ** digits;
+    return Math.round(value * factor) / factor;
+  };
 
   const pad = (n) => String(n).padStart(2, '0');
-  const fmtDate = (d) => (d instanceof Date && !isNaN(d) ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '—');
-  const fmtStamp = (d) => (d instanceof Date && !isNaN(d) ? `${fmtDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}` : '—');
-  const fmtShort = (d) => (d instanceof Date && !isNaN(d) ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—');
+  const toDate = (v) => (v instanceof Date && !isNaN(v) ? v : null);
+  const fmtDate = (d) => (toDate(d) ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '—');
+  const fmtStamp = (d) => (toDate(d) ? `${fmtDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}` : '—');
+  const fmtShort = (d) => (toDate(d) ? `${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : '—');
+  const dayKey = (d) => (toDate(d) ? fmtDate(d) : '');
+
+  const fmtP = (p) => {
+    if (!Number.isFinite(p)) return '—';
+    if (p < 0.0001) return '<0.0001';
+    if (p < 0.001) return p.toFixed(4);
+    return p.toFixed(3);
+  };
 
   let toastTimer = null;
   function toast(message) {
@@ -58,8 +75,11 @@
     el.textContent = message;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
   }
+
+  const escapeHtml = (value) => String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   /* ------------------------------------------------------------- randomness */
   function mulberry32(seed) {
@@ -85,18 +105,21 @@
   }
 
   /* ---------------------------------------------------------------- schema */
-  // Numeric measurements only. `activity` is a text label ("walk", "night"),
-  // kept out of the numeric table so it is never reported as missing.
+  const SUBJECT = 'subject_id';
   const METRIC_COLUMNS = [
     'sbp', 'dbp', 'hr', 'rmssd', 'sdnn', 'temp_c', 'humidity_pct',
     'pm25', 'pm10', 'green_index', 'forest', 'steps',
   ];
-  const STANDARD_COLUMNS = ['timestamp', 'source', 'condition', ...METRIC_COLUMNS, 'activity', 'flags', 'notes'];
+  const STANDARD_COLUMNS = ['timestamp', SUBJECT, 'source', 'condition', ...METRIC_COLUMNS, 'activity', 'flags', 'notes'];
+  const DERIVED_COLUMNS = ['map', 'pp', 'env_load'];
 
   const ALIASES = {
     timestamp: ['timestamp', 'datetime', 'date time', 'date', 'time', 'start', 'startdate', 'start date',
       'starttime', 'enddate', 'recordedat', 'recorded at', 'measuredat', 'measurement time', 'day',
       'summarydate', 'bedtime start', 'bedtime_start', '측정일', '측정시각', '일시', '날짜', '시간', '측정일시'],
+    subject_id: ['subject id', 'subject', 'subjectid', 'participant', 'participant id', 'participantid',
+      'participant code', 'person id', 'person', 'record id', 'user id', 'userid',
+      '피험자', '피험자id', '피험자번호', '대상자', '대상자id', '참가자', '참가자id', '연구대상'],
     source: ['source', 'device', 'app', 'vendor', '출처', '기기'],
     condition: ['condition', 'group', 'phase', 'condition name', 'segment', 'protocol', 'intervention',
       'activity type', '환경', '조건', '구간', '그룹'],
@@ -167,6 +190,13 @@
     if (!text || /^(nan|none|null|-)$/i.test(text)) return null;
     return CONDITION_LOOKUP[normKey(text)] || text.toLowerCase().replace(/\s+/g, '_');
   }
+  function normalizeSubject(value) {
+    if (value === null || value === undefined) return null;
+    let text = String(value).trim();
+    if (!text || /^(nan|none|null|-|<na>)$/i.test(text)) return null;
+    if (/^\d+\.0$/.test(text)) text = text.slice(0, -2);
+    return text;
+  }
 
   const PHYSIO_RANGES = {
     sbp: [60, 260], dbp: [30, 160], hr: [25, 220], rmssd: [1, 300], sdnn: [1, 400],
@@ -176,8 +206,11 @@
 
   const METRIC_LABELS = {
     sbp: 'SBP', dbp: 'DBP', map: 'MAP', pp: '맥압', hr: 'HR', rmssd: 'RMSSD', sdnn: 'SDNN',
-    pm25: 'PM2.5', temp_c: '기온', green_index: '녹지', humidity_pct: '습도',
+    pm25: 'PM2.5', pm10: 'PM10', temp_c: '기온', green_index: '녹지', humidity_pct: '습도',
+    env_load: '환경부하', forest: '산림', steps: '걸음',
   };
+
+  const KIND_LABELS = { measured: 'measured · 실측', derived: 'derived · 파생', exploratory: 'exploratory · 탐색' };
 
   /* ----------------------------------------------------------- csv parsing */
   function parseDelimited(text) {
@@ -258,6 +291,7 @@
     Object.entries(mapping).forEach(([canonical, raw]) => { out[canonical] = record[raw]; });
     STANDARD_COLUMNS.forEach((column) => { if (!(column in out)) out[column] = null; });
     out.timestamp = parseTime(out.timestamp);
+    out.subject_id = normalizeSubject(out.subject_id);
     out.condition = normalizeCondition(out.condition);
     METRIC_COLUMNS.forEach((column) => { out[column] = num(out[column]); });
     out.activity = out.activity ? String(out.activity) : null;
@@ -274,15 +308,21 @@
 
     const timeHeader = headers.find((h) => canonicalColumn(h) === 'timestamp');
     const conditionHeader = headers.find((h) => canonicalColumn(h) === 'condition');
+    const subjectHeader = headers.find((h) => canonicalColumn(h) === SUBJECT);
     if (!timeHeader) return null;
 
     const buckets = new Map();
     usable.forEach((record) => {
       const time = parseTime(record[timeHeader]);
       if (!time) return;
-      const key = time.toISOString() + '|' + (conditionHeader ? String(record[conditionHeader]) : '');
+      const subject = subjectHeader ? normalizeSubject(record[subjectHeader]) : null;
+      const key = time.toISOString() + '|' + (conditionHeader ? String(record[conditionHeader]) : '') + '|' + (subject || '');
       if (!buckets.has(key)) {
-        buckets.set(key, { timestamp: time, condition: conditionHeader ? normalizeCondition(record[conditionHeader]) : null });
+        buckets.set(key, {
+          timestamp: time,
+          subject_id: subject,
+          condition: conditionHeader ? normalizeCondition(record[conditionHeader]) : null,
+        });
       }
       const metric = canonicalMetricName(record[nameHeader]);
       const value = num(record[valueHeader]);
@@ -348,18 +388,17 @@
     const ouraLike = 'average_hrv' in records[0] || 'average_heart_rate' in records[0];
     let rows;
     if (ouraLike) {
-      rows = records.map((record) => {
-        const out = {};
-        out.timestamp = parseTime(record.bedtime_start || (record.day ? `${record.day} 03:00:00` : null));
-        out.source = 'oura';
-        out.condition = normalizeCondition(record.condition);
-        out.hr = num(record.average_heart_rate !== undefined ? record.average_heart_rate : record.resting_heart_rate);
-        out.rmssd = num(record.average_hrv);
-        out.sdnn = num(record.sdnn);
-        out.pm25 = num(record.pm25);
-        out.temp_c = num(record.temp_c);
-        return out;
-      });
+      rows = records.map((record) => ({
+        timestamp: parseTime(record.bedtime_start || (record.day ? `${record.day} 03:00:00` : null)),
+        subject_id: normalizeSubject(record.subject_id || record.subject || record.participant),
+        source: 'oura',
+        condition: normalizeCondition(record.condition),
+        hr: num(record.average_heart_rate !== undefined ? record.average_heart_rate : record.resting_heart_rate),
+        rmssd: num(record.average_hrv),
+        sdnn: num(record.sdnn),
+        pm25: num(record.pm25),
+        temp_c: num(record.temp_c),
+      }));
       warnings.push('Oura 야간 집계는 해당 day의 03:00으로 배치했습니다 (박동 단위 데이터는 없습니다)');
     } else {
       const pivot = pivotLong(records, headers);
@@ -403,22 +442,21 @@
   }
 
   /* --------------------------------------------------------------- cleaning */
-  // 12 h keeps a normal overnight pause out of the gap report; ABPM would use less.
   const GAP_HOURS = 12;
 
   function cleanRows(input) {
     const rowsIn = input.length;
     const warnings = [];
     let rows = input.filter((r) => r.timestamp instanceof Date);
-    if (rows.length !== rowsIn) warnings.push(`${rowsIn - rows.length}개 행에 시각이 없어 제외했습니다`);
 
     rows = rows.slice().sort((a, b) => a.timestamp - b.timestamp);
 
     const signature = (r) => METRIC_COLUMNS.map((k) => (Number.isFinite(r[k]) ? r[k].toFixed(1) : '')).join('|');
+    const subjectKey = (r) => r[SUBJECT] || '';
     const seen = new Set();
     let duplicatesRemoved = 0;
     rows = rows.filter((row) => {
-      const key = row.timestamp.toISOString() + '|' + (row.condition || '') + '|' + signature(row);
+      const key = row.timestamp.toISOString() + '|' + subjectKey(row) + '|' + (row.condition || '') + '|' + signature(row);
       if (seen.has(key)) { duplicatesRemoved += 1; return false; }
       seen.add(key);
       return true;
@@ -426,7 +464,7 @@
 
     const lastBySignature = new Map();
     rows = rows.filter((row) => {
-      const key = signature(row) + '|' + (row.condition || '');
+      const key = signature(row) + '|' + (row.condition || '') + '|' + subjectKey(row);
       const previous = lastBySignature.get(key);
       const within = previous && Math.abs(row.timestamp - previous) <= 60000;
       lastBySignature.set(key, row.timestamp);
@@ -435,7 +473,11 @@
     });
 
     const removed = {};
-    const flag = (row, code) => { row.flags = row.flags ? `${row.flags}|${code}` : code; };
+    const flag = (row, code) => {
+      const existing = row.flags ? String(row.flags) : '';
+      if (existing.split('|').includes(code)) return;
+      row.flags = existing ? `${existing}|${code}` : code;
+    };
 
     Object.entries(PHYSIO_RANGES).forEach(([key, [low, high]]) => {
       rows.forEach((row) => {
@@ -472,10 +514,15 @@
 
     const gaps = [];
     for (let i = 1; i < rows.length; i += 1) {
+      if (subjectKey(rows[i]) !== subjectKey(rows[i - 1])) continue;
       const hours = (rows[i].timestamp - rows[i - 1].timestamp) / 3600000;
       if (hours >= GAP_HOURS) gaps.push({ from: fmtStamp(rows[i - 1].timestamp), to: fmtStamp(rows[i].timestamp), hours });
     }
-    const maxGap = rows.length > 1 ? Math.max(...rows.slice(1).map((r, i) => (r.timestamp - rows[i].timestamp) / 3600000)) : 0;
+    let maxGap = 0;
+    for (let i = 1; i < rows.length; i += 1) {
+      if (subjectKey(rows[i]) !== subjectKey(rows[i - 1])) continue;
+      maxGap = Math.max(maxGap, (rows[i].timestamp - rows[i - 1].timestamp) / 3600000);
+    }
 
     const missing = {};
     METRIC_COLUMNS.forEach((key) => {
@@ -489,7 +536,10 @@
       conditions[key] = (conditions[key] || 0) + 1;
     });
 
-    const flagged = rows.filter((r) => r.flags).length;
+    const subjects = [...new Set(rows.map((r) => r[SUBJECT]).filter(Boolean))];
+    const isQualityFlag = (row) => Boolean(row.flags)
+      && String(row.flags).split('|').some((code) => code && !code.startsWith('align'));
+    const flagged = rows.filter(isQualityFlag).length;
     const span = rows.length
       ? {
         start: fmtStamp(rows[0].timestamp),
@@ -502,21 +552,36 @@
       rows,
       qc: {
         rowsIn, rowsOut: rows.length, duplicatesRemoved, removed, inconsistent,
-        missing, gaps, maxGap: Math.round(maxGap * 10) / 10, conditions, flagged, span, warnings,
+        missing, gaps, maxGap: Math.round(maxGap * 10) / 10, conditions, subjects, flagged, span, warnings,
       },
     };
   }
 
   /* ---------------------------------------------------------------- metrics */
-  const addDerived = (rows) => rows.map((row) => ({
-    ...row,
-    pp: Number.isFinite(row.sbp) && Number.isFinite(row.dbp) ? row.sbp - row.dbp : NaN,
-    map: Number.isFinite(row.sbp) && Number.isFinite(row.dbp) ? row.dbp + (row.sbp - row.dbp) / 3 : NaN,
-  }));
+  const addDerived = (rows) => rows.map((row) => {
+    const out = {
+      ...row,
+      pp: Number.isFinite(row.sbp) && Number.isFinite(row.dbp) ? row.sbp - row.dbp : NaN,
+      map: Number.isFinite(row.sbp) && Number.isFinite(row.dbp) ? row.dbp + (row.sbp - row.dbp) / 3 : NaN,
+    };
+    out.env_load = environmentalLoad(out);
+    return out;
+  });
+
+  const REFERENCE = { rmssd: 50, hrLow: 55, hrHigh: 95, pm25: 35, thermalCenter: 22, thermalSpan: 15 };
+  const STRESS_WEIGHTS = { bp_load: 0.30, hrv_suppression: 0.25, pm25: 0.20, thermal: 0.15, hr_load: 0.10 };
+
+  function environmentalLoad(row) {
+    const parts = [];
+    if (Number.isFinite(row.pm25)) parts.push(clamp(row.pm25 / REFERENCE.pm25, 0, 1));
+    if (Number.isFinite(row.temp_c)) parts.push(clamp(Math.abs(row.temp_c - REFERENCE.thermalCenter) / REFERENCE.thermalSpan, 0, 1));
+    if (Number.isFinite(row.green_index)) parts.push(clamp(1 - row.green_index, 0, 1));
+    return parts.length ? mean(parts) : NaN;
+  }
 
   const isNight = (date) => {
     const hour = date.getHours();
-    return hour >= 22 || hour < 6;
+    return hour >= NIGHT.start || hour < NIGHT.end;
   };
 
   function bloodPressureLoad(rows, sbpThreshold = 130, dbpThreshold = 80) {
@@ -540,9 +605,7 @@
     if (value < 0) category = 'reverse dipper';
     else if (value < 10) category = 'non-dipper';
     else if (value > 20) category = 'extreme dipper';
-    return {
-      available: true, dayMean, nightMean, value, category, nDay: day.length, nNight: night.length,
-    };
+    return { available: true, dayMean, nightMean, value, category, nDay: day.length, nNight: night.length };
   }
 
   function hrvRecovery(rows, metric = 'rmssd') {
@@ -555,14 +618,12 @@
     if (night.length < 2 || day.length < 2) {
       const byDate = new Map();
       finite.slice().sort((a, b) => a.timestamp - b.timestamp).forEach((row) => {
-        const key = fmtDate(row.timestamp);
+        const key = dayKey(row.timestamp);
         if (!byDate.has(key)) byDate.set(key, row[metric]);
       });
       resting = [...byDate.values()];
       baseline = '그날 첫 측정';
-      if (day.length < 2) {
-        return { available: false, reason: '주간 HRV 측정이 부족합니다' };
-      }
+      if (day.length < 2) return { available: false, reason: '주간 HRV 측정이 부족합니다' };
     }
     const dayValues = day.length >= 2 ? day : finite.map((r) => r[metric]);
     if (resting.length < 2) return { available: false, reason: '기저 HRV 측정이 부족합니다' };
@@ -575,9 +636,6 @@
     else if (index >= 95) band = 'maintained';
     return { available: true, index, band, baseline, restingMean, dayMean, nResting: resting.length, nDay: dayValues.length };
   }
-
-  const REFERENCE = { rmssd: 50, hrLow: 55, hrHigh: 95, pm25: 35, thermalCenter: 22, thermalSpan: 15 };
-  const STRESS_WEIGHTS = { bp_load: 0.30, hrv_suppression: 0.25, pm25: 0.20, thermal: 0.15, hr_load: 0.10 };
 
   function stressIndex(rows) {
     const components = {};
@@ -628,7 +686,8 @@
     const pick = (key) => values(rows, key);
     const stats = {
       rows: rows.length,
-      days: new Set(rows.map((r) => fmtDate(r.timestamp))).size,
+      days: new Set(rows.map((r) => dayKey(r.timestamp))).size,
+      subjects: new Set(rows.map((r) => r[SUBJECT]).filter(Boolean)).size,
       sbp: mean(pick('sbp')), dbp: mean(pick('dbp')), map: mean(pick('map')), pp: mean(pick('pp')),
       hr: mean(pick('hr')), rmssd: mean(pick('rmssd')), sdnn: mean(pick('sdnn')),
       pm25: mean(pick('pm25')), temp_c: mean(pick('temp_c')), green_index: mean(pick('green_index')),
@@ -644,7 +703,7 @@
   function dailyTable(rows) {
     const byDate = new Map();
     rows.forEach((row) => {
-      const key = fmtDate(row.timestamp);
+      const key = dayKey(row.timestamp);
       if (!byDate.has(key)) byDate.set(key, []);
       byDate.get(key).push(row);
     });
@@ -659,24 +718,6 @@
       item.dominant_condition = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
       return item;
     });
-  }
-
-  function pearson(rows, xKey, yKey) {
-    const pairs = rows.filter((r) => Number.isFinite(r[xKey]) && Number.isFinite(r[yKey]));
-    if (pairs.length < 3) return { r: NaN, n: pairs.length, pairs };
-    const xs = pairs.map((p) => p[xKey]);
-    const ys = pairs.map((p) => p[yKey]);
-    const mx = mean(xs);
-    const my = mean(ys);
-    let numr = 0;
-    let dx = 0;
-    let dy = 0;
-    pairs.forEach((_, i) => {
-      numr += (xs[i] - mx) * (ys[i] - my);
-      dx += (xs[i] - mx) ** 2;
-      dy += (ys[i] - my) ** 2;
-    });
-    return { r: dx && dy ? numr / Math.sqrt(dx * dy) : NaN, n: pairs.length, pairs };
   }
 
   /* ------------------------------------------------------------- statistics */
@@ -769,6 +810,55 @@
     return d * (1 - 3 / (4 * n - 9));
   }
 
+  function cohensDz(a, b) {
+    const diffs = [];
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i += 1) {
+      if (Number.isFinite(a[i]) && Number.isFinite(b[i])) diffs.push(a[i] - b[i]);
+    }
+    if (diffs.length < 2) return NaN;
+    const spread = sd(diffs);
+    if (!spread) return NaN;
+    return mean(diffs) / spread;
+  }
+
+  function permutationP(a, b, iterations = 5000, seed = 5020) {
+    const diffs = [];
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i += 1) {
+      if (Number.isFinite(a[i]) && Number.isFinite(b[i])) diffs.push(a[i] - b[i]);
+    }
+    if (diffs.length < 2) return NaN;
+    const observed = Math.abs(mean(diffs));
+    const rng = makeRng(seed);
+    let hits = 0;
+    for (let k = 0; k < iterations; k += 1) {
+      let total = 0;
+      for (let i = 0; i < diffs.length; i += 1) total += (rng.uniform() < 0.5 ? -1 : 1) * diffs[i];
+      if (Math.abs(total / diffs.length) >= observed - 1e-12) hits += 1;
+    }
+    return (hits + 1) / (iterations + 1);
+  }
+
+  function signTestP(a, b) {
+    const diffs = [];
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i += 1) {
+      if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) continue;
+      const d = a[i] - b[i];
+      if (d !== 0) diffs.push(d);
+    }
+    const m = diffs.length;
+    if (!m) return NaN;
+    const positive = diffs.filter((d) => d > 0).length;
+    const tail = Math.min(positive, m - positive);
+    let sum = 0;
+    for (let k = 0; k <= tail; k += 1) {
+      sum += Math.exp(logGamma(m + 1) - logGamma(k + 1) - logGamma(m - k + 1) - m * Math.LN2);
+    }
+    return Math.min(1, 2 * sum);
+  }
+
   function effectLabel(d) {
     if (!Number.isFinite(d)) return '—';
     const m = Math.abs(d);
@@ -792,7 +882,12 @@
     const p = 2 * tSf(Math.abs(t), df);
     const crit = tQuantile(1 - alpha / 2, df);
     const d = cohenD(a, b);
-    return { test: 'welch_t', t, df, p: clamp(p, 0, 1), diff, nA: a.length, nB: b.length, meanA: mean(a), meanB: mean(b), d, g: hedgesG(a, b), effect: effectLabel(d), ciLow: diff - crit * se, ciHigh: diff + crit * se };
+    return {
+      test: 'welch_t', t, df, p: clamp(p, 0, 1), diff,
+      nA: a.length, nB: b.length, meanA: mean(a), meanB: mean(b),
+      d, dz: NaN, g: hedgesG(a, b), effect: effectLabel(d), permP: NaN, signP: NaN,
+      ciLow: diff - crit * se, ciHigh: diff + crit * se,
+    };
   }
 
   function pairedT(a, b, alpha = 0.05) {
@@ -808,18 +903,89 @@
     const df = n - 1;
     const p = 2 * tSf(Math.abs(t), df);
     const crit = tQuantile(1 - alpha / 2, df);
-    const d = cohenD(a, b);
-    return { test: 'paired_t', t, df, p: clamp(p, 0, 1), diff: md, nA: n, nB: n, meanA: mean(a), meanB: mean(b), d, g: hedgesG(a, b), effect: effectLabel(d), ciLow: md - crit * se, ciHigh: md + crit * se };
+    const dz = cohensDz(a, b);
+    return {
+      test: 'paired_t', t, df, p: clamp(p, 0, 1), diff: md,
+      nA: n, nB: n, meanA: mean(a), meanB: mean(b),
+      d: cohenD(a, b), dz, g: hedgesG(a, b), effect: effectLabel(Number.isFinite(dz) ? dz : cohenD(a, b)),
+      permP: permutationP(a, b), signP: signTestP(a, b),
+      ciLow: md - crit * se, ciHigh: md + crit * se,
+    };
+  }
+
+  function subjectPairs(rows, metric, groupA, groupB) {
+    const buckets = new Map();
+    rows.forEach((row) => {
+      if (!row[SUBJECT] || !row.condition) return;
+      if (!Number.isFinite(row[metric])) return;
+      if (row.condition !== groupA && row.condition !== groupB) return;
+      const key = `${row[SUBJECT]}||${row.condition}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(row[metric]);
+    });
+    const bySubject = new Map();
+    buckets.forEach((list, key) => {
+      const [subject, condition] = key.split('||');
+      if (!bySubject.has(subject)) bySubject.set(subject, {});
+      bySubject.get(subject)[condition] = mean(list);
+    });
+    const a = [];
+    const b = [];
+    [...bySubject.values()].forEach((entry) => {
+      if (Number.isFinite(entry[groupA]) && Number.isFinite(entry[groupB])) {
+        a.push(entry[groupA]);
+        b.push(entry[groupB]);
+      }
+    });
+    return { a, b, subjects: a.length };
+  }
+
+  function countSubjectsInBoth(rows, groupA, groupB) {
+    const sets = new Map();
+    rows.forEach((row) => {
+      if (!row[SUBJECT] || !row.condition) return;
+      if (!sets.has(row[SUBJECT])) sets.set(row[SUBJECT], new Set());
+      sets.get(row[SUBJECT]).add(row.condition);
+    });
+    let count = 0;
+    sets.forEach((set) => { if (set.has(groupA) && set.has(groupB)) count += 1; });
+    return count;
   }
 
   function compareTable(rows, metrics, groupA, groupB, paired) {
     const out = [];
-    if (!groupA || !groupB || groupA === groupB) return out;
+    if (!groupA || !groupB || groupA === groupB) return { rows: out, mode: 'unpaired', nSubjects: 0, note: '' };
+    const pairedSubjects = paired ? countSubjectsInBoth(rows, groupA, groupB) : 0;
+    const mode = !paired ? 'unpaired' : pairedSubjects >= 2 ? 'subject' : 'row';
+    let note = '';
+    if (paired && mode === 'row') {
+      note = pairedSubjects === 1
+        ? 'subject_id가 1명뿐이라 시간 순서로 짝지었습니다 (같은 사람의 반복 측정).'
+        : 'subject_id가 없어 시간 순서로 짝지었습니다 (subject_id를 넣으면 피험자 단위 대응이 됩니다).';
+    }
     metrics.forEach((metric) => {
-      const a = rows.filter((r) => r.condition === groupA && Number.isFinite(r[metric])).map((r) => r[metric]);
-      const b = rows.filter((r) => r.condition === groupB && Number.isFinite(r[metric])).map((r) => r[metric]);
-      if (a.length < 2 || b.length < 2) return;
-      const result = paired ? pairedT(a, b) : welch(a, b);
+      let a;
+      let b;
+      let result;
+      if (mode === 'subject') {
+        const pairs = subjectPairs(rows, metric, groupA, groupB);
+        if (pairs.subjects < 2) return;
+        a = pairs.a;
+        b = pairs.b;
+        result = pairedT(a, b);
+      } else {
+        a = rows.filter((r) => r.condition === groupA && Number.isFinite(r[metric])).map((r) => r[metric]);
+        b = rows.filter((r) => r.condition === groupB && Number.isFinite(r[metric])).map((r) => r[metric]);
+        if (a.length < 2 || b.length < 2) return;
+        if (paired) {
+          const n = Math.min(a.length, b.length);
+          a = a.slice(0, n);
+          b = b.slice(0, n);
+          result = pairedT(a, b);
+        } else {
+          result = welch(a, b);
+        }
+      }
       if (!result) return;
       out.push({
         metric,
@@ -828,16 +994,112 @@
         diff: result.diff,
         pct: result.meanB ? result.diff / result.meanB * 100 : NaN,
         d: result.d,
+        dz: result.dz,
         effect: result.effect,
         p: result.p,
+        permP: result.permP,
+        signP: result.signP,
         ciLow: result.ciLow,
         ciHigh: result.ciHigh,
         nA: a.length,
         nB: b.length,
+        nSubjects: mode === 'subject' ? a.length : null,
         test: result.test,
       });
     });
-    return out;
+    return { rows: out, mode, nSubjects: pairedSubjects, note };
+  }
+
+  /* ------------------------------------------------------------ correlation */
+  function pearsonArrays(xs, ys) {
+    const n = xs.length;
+    if (n < 3) return { r: NaN, n };
+    const mx = mean(xs);
+    const my = mean(ys);
+    let sxy = 0;
+    let sxx = 0;
+    let syy = 0;
+    for (let i = 0; i < n; i += 1) {
+      sxy += (xs[i] - mx) * (ys[i] - my);
+      sxx += (xs[i] - mx) ** 2;
+      syy += (ys[i] - my) ** 2;
+    }
+    if (!sxx || !syy) return { r: NaN, n };
+    const r = sxy / Math.sqrt(sxx * syy);
+    const t = r * Math.sqrt((n - 2) / Math.max(1e-15, 1 - r * r));
+    return { r, p: 2 * tSf(Math.abs(t), n - 2), n };
+  }
+
+  function rank(valuesIn) {
+    const sorted = valuesIn.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+    const ranks = new Array(valuesIn.length);
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i;
+      while (j + 1 < sorted.length && sorted[j + 1][0] === sorted[i][0]) j += 1;
+      const average = (i + j + 2) / 2;
+      for (let k = i; k <= j; k += 1) ranks[sorted[k][1]] = average;
+      i = j + 1;
+    }
+    return ranks;
+  }
+
+  function spearmanArrays(xs, ys) {
+    if (xs.length < 3) return { rho: NaN, n: xs.length };
+    const result = pearsonArrays(rank(xs), rank(ys));
+    return { rho: result.r, p: result.p, n: result.n };
+  }
+
+  function olsRegression(xs, ys) {
+    const n = xs.length;
+    if (n < 3) return { slope: NaN, intercept: NaN, p: NaN, r2: NaN, n };
+    const mx = mean(xs);
+    const my = mean(ys);
+    let sxx = 0;
+    let sxy = 0;
+    for (let i = 0; i < n; i += 1) {
+      sxx += (xs[i] - mx) ** 2;
+      sxy += (xs[i] - mx) * (ys[i] - my);
+    }
+    if (!sxx) return { slope: NaN, intercept: NaN, p: NaN, r2: NaN, n };
+    const slope = sxy / sxx;
+    const intercept = my - slope * mx;
+    let sse = 0;
+    let sst = 0;
+    for (let i = 0; i < n; i += 1) {
+      sse += (ys[i] - (intercept + slope * xs[i])) ** 2;
+      sst += (ys[i] - my) ** 2;
+    }
+    const df = n - 2;
+    if (df < 1 || sse <= 0) return { slope, intercept, p: NaN, r2: NaN, n };
+    const se = Math.sqrt(sse / df / sxx);
+    const t = slope / se;
+    return { slope, intercept, se, t, p: 2 * tSf(Math.abs(t), df), r2: sst > 0 ? 1 - sse / sst : NaN, n };
+  }
+
+  const DEFAULT_PAIRS = [
+    ['pm25', 'sbp'], ['pm25', 'dbp'], ['pm25', 'map'], ['pm25', 'rmssd'], ['pm25', 'sdnn'],
+    ['green_index', 'sbp'], ['green_index', 'rmssd'], ['temp_c', 'hr'], ['temp_c', 'sbp'],
+    ['humidity_pct', 'hr'], ['env_load', 'sbp'], ['env_load', 'rmssd'],
+  ];
+
+  function correlationRow(rows, xKey, yKey) {
+    const pairs = rows.filter((r) => Number.isFinite(r[xKey]) && Number.isFinite(r[yKey]));
+    if (pairs.length < 4) return { x: xKey, y: yKey, n: pairs.length, available: false };
+    const xs = pairs.map((p) => p[xKey]);
+    const ys = pairs.map((p) => p[yKey]);
+    const p = pearsonArrays(xs, ys);
+    const s = spearmanArrays(xs, ys);
+    const reg = olsRegression(xs, ys);
+    return {
+      x: xKey, y: yKey, n: pairs.length, available: true,
+      r: p.r, rP: p.p, rho: s.rho, rhoP: s.p,
+      slope: reg.slope, intercept: reg.intercept, slopeP: reg.p, r2: reg.r2,
+    };
+  }
+
+  function correlationRows(rows, pairs = DEFAULT_PAIRS) {
+    return pairs.map(([x, y]) => correlationRow(rows, x, y)).filter((row) => row.available);
   }
 
   /* -------------------------------------------------------------- synthetic */
@@ -850,7 +1112,7 @@
     forest: { pm25: 8.5, green: 0.84, temp: 23.4, humidity: 68, forest: 1 },
   };
 
-  function generateDemo(days = 14, seed = 123, startISO = '2026-05-06') {
+  function generateDemo(days = 14, seed = 123, startISO = '2026-05-06', subject = 'S-01', anomalies = true) {
     const rng = makeRng(seed);
     const slots = [['night', 3, 0], ['morning', 7, 10], ['walk', 10, 0], ['post', 11, 15], ['evening', 21, 40]];
     const start = new Date(`${startISO}T00:00:00`);
@@ -926,6 +1188,7 @@
         const sdnn = rmssd * 2.05 + rng.normal(0, 4);
         rows.push({
           timestamp,
+          subject_id: subject,
           source: 'synthetic',
           condition,
           sbp: Math.round(sbp * 10) / 10,
@@ -950,7 +1213,7 @@
 
     // The same three deliberate faults as the Python generator, so the QC panel
     // has something real to report.
-    if (rows.length >= 21) {
+    if (anomalies && rows.length >= 21) {
       rows[2].sbp = 0; rows[2].dbp = 0;
       rows[13].sbp = 78; rows[13].dbp = 96;
       const duplicate = { ...rows[30], timestamp: new Date(rows[30].timestamp.getTime() + 60000), notes: '중복 동기화' };
@@ -959,6 +1222,353 @@
     rows.sort((a, b) => a.timestamp - b.timestamp);
     return rows;
   }
+
+  function generateCohort(subjects = 6, days = 8, seed = 123) {
+    const rows = [];
+    for (let i = 0; i < subjects; i += 1) {
+      rows.push(...generateDemo(days, seed + 101 * i, '2026-05-06', `S-${pad(i + 1)}`, false));
+    }
+    return rows.sort((a, b) => String(a.subject_id).localeCompare(String(b.subject_id)) || a.timestamp - b.timestamp);
+  }
+
+  /* --------------------------------------------------------------- alignment */
+  const ROLE_ORDER = ['bp', 'wearable', 'environment'];
+
+  function roleOf(rows) {
+    const has = (key) => rows.some((r) => Number.isFinite(r[key]));
+    if (has('sbp') || has('dbp')) return 'bp';
+    if (has('hr') || has('rmssd') || has('sdnn')) return 'wearable';
+    if (has('pm25') || has('green_index') || has('temp_c')) return 'environment';
+    return 'other';
+  }
+
+  function streamName(stream, index) {
+    return stream.name || `stream${index + 1}`;
+  }
+
+  function subjectsCompatible(anchor, row, singleSubject) {
+    const a = anchor[SUBJECT] || '';
+    const b = row[SUBJECT] || '';
+    if (a && b) return a === b;
+    if (a || b) return singleSubject;
+    return true;
+  }
+
+  const stripInternal = (row) => {
+    const out = {};
+    Object.entries(row).forEach(([key, value]) => { if (!key.startsWith('__')) out[key] = value; });
+    return out;
+  };
+
+  function coalesce(target, source) {
+    METRIC_COLUMNS.forEach((key) => {
+      const value = source[key];
+      if (!Number.isFinite(value)) return;
+      if (!Number.isFinite(target[key])) target[key] = value;
+    });
+    if (!target.condition && source.condition) target.condition = source.condition;
+    if (!target[SUBJECT] && source[SUBJECT]) target[SUBJECT] = source[SUBJECT];
+    if (!target.notes && source.notes) target.notes = source.notes;
+  }
+
+  function addFlag(flags, code) {
+    const existing = flags ? String(flags) : '';
+    if (existing.split('|').includes(code)) return existing;
+    return existing ? `${existing}|${code}` : code;
+  }
+
+  function alignStreams(streams, toleranceMinutes, mode = 'tolerance') {
+    const prepared = streams.map((stream, index) => ({
+      name: streamName(stream, index),
+      role: roleOf(stream.rows),
+      rows: stream.rows,
+    }));
+    if (!prepared.length) return { rows: [], report: null };
+    const anchor = prepared.find((s) => s.role === 'bp') || prepared[0];
+    if (mode === 'daily') return alignDaily(prepared);
+
+    const records = [];
+    prepared.forEach((stream) => {
+      stream.rows.forEach((row) => {
+        records.push({ ...row, __stream: stream.name, __role: stream.role, __assigned: false });
+      });
+    });
+    const toleranceMs = Math.max(0, Number(toleranceMinutes) || 0) * 60000;
+    const anchorIndexes = [];
+    records.forEach((row, index) => { if (row.__role === anchor.role) anchorIndexes.push(index); });
+    const knownSubjects = new Set(records.map((r) => r[SUBJECT]).filter(Boolean));
+    const singleSubject = knownSubjects.size <= 1;
+    const partners = new Map();
+    anchorIndexes.forEach((index) => partners.set(index, []));
+
+    const roles = [...new Set(records.map((r) => r.__role))].filter((role) => role !== anchor.role);
+    roles.sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+
+    const warnings = [];
+    let unlabelledJoins = 0;
+    let blockedJoins = 0;
+    const rowTaken = new Set();
+
+    roles.forEach((role) => {
+      const candidates = [];
+      records.forEach((row, index) => {
+        if (row.__role !== role || row.__assigned) return;
+        anchorIndexes.forEach((anchorIndex) => {
+          const anchorRow = records[anchorIndex];
+          const a = anchorRow[SUBJECT] || '';
+          const b = row[SUBJECT] || '';
+          let bothLabelled = true;
+          if (a && b) {
+            if (a !== b) return;
+          } else if (a || b) {
+            bothLabelled = false;
+            if (!singleSubject) { row.__blocked = true; return; }
+          }
+          const delta = Math.abs(row.timestamp - anchorRow.timestamp);
+          if (delta <= toleranceMs) candidates.push([delta, anchorIndex, index, bothLabelled]);
+        });
+      });
+      candidates.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
+      const takenAnchor = new Set();
+      candidates.forEach(([, anchorIndex, index, bothLabelled]) => {
+        if (takenAnchor.has(anchorIndex) || rowTaken.has(index)) return;
+        partners.get(anchorIndex).push(index);
+        takenAnchor.add(anchorIndex);
+        rowTaken.add(index);
+        records[index].__assigned = true;
+        if (!bothLabelled) unlabelledJoins += 1;
+      });
+    });
+    blockedJoins = records.filter((row) => row.__blocked && !row.__assigned).length;
+
+    const out = [];
+    let matched = 0;
+    let multi = 0;
+    const rolesByAnchor = new Map();
+    anchorIndexes.forEach((anchorIndex) => {
+      const base = stripInternal(records[anchorIndex]);
+      const partnerIndexes = partners.get(anchorIndex);
+      rolesByAnchor.set(anchorIndex, partnerIndexes.map((i) => records[i].__role));
+      if (partnerIndexes.length) {
+        matched += 1;
+        partnerIndexes.forEach((i) => coalesce(base, stripInternal(records[i])));
+      }
+      const names = [records[anchorIndex].__stream]
+        .concat(partnerIndexes.map((i) => records[i].__stream))
+        .filter((value, i, list) => list.indexOf(value) === i);
+      base.source = names.join('+');
+      base.flags = addFlag(base.flags, `align:${names.join('+')}`);
+      if (!partnerIndexes.length) base.flags = addFlag(base.flags, 'align_unmatched');
+      if (new Set(rolesByAnchor.get(anchorIndex)).size > 1 || partnerIndexes.length > 1) multi += 1;
+      out.push(base);
+    });
+
+    records.forEach((row, index) => {
+      if (row.__role === anchor.role && anchorIndexes.includes(index)) return;
+      if (row.__assigned) return;
+      const base = stripInternal(row);
+      base.source = row.__stream;
+      base.flags = addFlag(base.flags, `align:${row.__stream}`);
+      base.flags = addFlag(base.flags, 'align_unmatched');
+      out.push(base);
+    });
+
+    const streamReports = prepared.map((stream) => {
+      let matchedRows = 0;
+      records.forEach((row, index) => {
+        if (row.__stream !== stream.name) return;
+        if (row.__role === anchor.role && anchorIndexes.includes(index)) {
+          if (partners.get(index).length) matchedRows += 1;
+        } else if (row.__assigned) {
+          matchedRows += 1;
+        }
+      });
+      return {
+        name: stream.name,
+        role: stream.role,
+        rows: stream.rows.length,
+        matched_rows: matchedRows,
+        unmatched_rows: stream.rows.length - matchedRows,
+        match_rate_pct: stream.rows.length ? Math.round(matchedRows / stream.rows.length * 1000) / 10 : 0,
+      };
+    });
+
+    if (unlabelledJoins) warnings.push(`${unlabelledJoins}개 행에 subject_id가 없어 단일 피험자로 결합했습니다.`);
+    if (blockedJoins) warnings.push('여러 피험자 데이터에서 subject_id가 없는 스트림의 결합 후보를 거부했습니다.');
+
+    out.sort((a, b) => String(a[SUBJECT] || '').localeCompare(String(b[SUBJECT] || '')) || a.timestamp - b.timestamp);
+    return {
+      rows: out,
+      report: {
+        mode: 'tolerance',
+        tolerance_minutes: Number(toleranceMinutes) || 0,
+        anchor: anchor.role,
+        subject_column: SUBJECT,
+        streams: streamReports,
+        rows_in: records.length,
+        rows_out: out.length,
+        anchors: anchorIndexes.length,
+        anchors_matched: matched,
+        match_rate_pct: anchorIndexes.length ? Math.round(matched / anchorIndexes.length * 1000) / 10 : 0,
+        rows_with_multiple_streams: multi,
+        warnings,
+      },
+    };
+  }
+
+  function alignDaily(prepared) {
+    const merged = new Map();
+    const order = [];
+    const streamReports = prepared.map((stream) => ({
+      name: stream.name, role: stream.role, rows: stream.rows.length, matched_rows: 0, unmatched_rows: 0, match_rate_pct: null,
+    }));
+    prepared.forEach((stream) => {
+      const buckets = new Map();
+      stream.rows.forEach((row) => {
+        if (!(row.timestamp instanceof Date)) return;
+        const key = `${row[SUBJECT] || ''}||${dayKey(row.timestamp)}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(row);
+      });
+      buckets.forEach((group, key) => {
+        if (!merged.has(key)) {
+          const [subject, date] = key.split('||');
+          merged.set(key, {
+            timestamp: new Date(`${date}T00:00:00`),
+            subject_id: subject || null,
+            source: '',
+            condition: null,
+            flags: null,
+            notes: null,
+            __streams: [],
+          });
+          order.push(key);
+        }
+        const target = merged.get(key);
+        const averaged = {};
+        METRIC_COLUMNS.forEach((metric) => {
+          const list = values(group, metric);
+          averaged[metric] = list.length ? mean(list) : NaN;
+        });
+        averaged.condition = group.map((r) => r.condition).find(Boolean) || null;
+        averaged.notes = group.map((r) => r.notes).find(Boolean) || null;
+        coalesce(target, averaged);
+        target.__streams.push(stream.name);
+      });
+    });
+    let multi = 0;
+    const out = order.map((key) => {
+      const row = merged.get(key);
+      const names = [...new Set(row.__streams)];
+      delete row.__streams;
+      if (names.length > 1) multi += 1;
+      row.source = names.join('+');
+      row.flags = addFlag(row.flags, `align:${names.join('+')}`);
+      if (names.length < 2) row.flags = addFlag(row.flags, 'align_unmatched');
+      row.__names = names;
+      return row;
+    });
+    out.sort((a, b) => String(a[SUBJECT] || '').localeCompare(String(b[SUBJECT] || '')) || a.timestamp - b.timestamp);
+    streamReports.forEach((entry) => {
+      const count = out.filter((row) => (row.__names || []).includes(entry.name)).length;
+      entry.matched_rows = count;
+      entry.unmatched_rows = entry.rows - count;
+    });
+    out.forEach((row) => { delete row.__names; });
+    return {
+      rows: out,
+      report: {
+        mode: 'daily',
+        tolerance_minutes: 0,
+        anchor: 'date',
+        subject_column: SUBJECT,
+        streams: streamReports,
+        rows_in: prepared.reduce((sum, s) => sum + s.rows.length, 0),
+        rows_out: out.length,
+        anchors: out.length,
+        anchors_matched: multi,
+        match_rate_pct: out.length ? Math.round(multi / out.length * 1000) / 10 : 0,
+        rows_with_multiple_streams: multi,
+        warnings: ['일별 집계는 피험자·날짜별 평균으로 결합했습니다.'],
+      },
+    };
+  }
+
+  function splitCohortStreams(rows) {
+    const bp = rows.map((row) => ({
+      timestamp: new Date(row.timestamp),
+      subject_id: row.subject_id,
+      source: 'cuff_bp',
+      condition: row.condition,
+      sbp: row.sbp,
+      dbp: row.dbp,
+    }));
+    const wearable = rows.map((row) => ({
+      timestamp: new Date(row.timestamp.getTime() + 3 * 60000),
+      subject_id: row.subject_id,
+      source: 'wearable',
+      condition: row.condition,
+      hr: row.hr,
+      rmssd: row.rmssd,
+      sdnn: row.sdnn,
+    }));
+    const environment = rows.map((row) => ({
+      timestamp: new Date(row.timestamp.getTime() - 7 * 60000),
+      subject_id: row.subject_id,
+      source: 'environment',
+      condition: row.condition,
+      temp_c: row.temp_c,
+      humidity_pct: row.humidity_pct,
+      pm25: row.pm25,
+      pm10: row.pm10,
+      green_index: row.green_index,
+      forest: row.forest,
+    }));
+    return [
+      { name: 'cuff_bp.csv', rows: bp },
+      { name: 'wearable.json', rows: wearable },
+      { name: 'environment.csv', rows: environment },
+    ];
+  }
+
+  /* ------------------------------------------------------------ methodology */
+  const REFERENCES = {
+    pm25: 'WHO (2005) Air Quality Guidelines — 24-hour PM2.5 interim target 1 = 35 µg/m³ (2021 지침값은 15 µg/m³)',
+    welcoming: 'Lakens, D. (2013). Calculating and reporting effect sizes. Front. Psychol. 4:863',
+    welch: 'Welch, B. L. (1947). The generalization of Student\'s problem. Biometrika 34:28–35',
+    permutation: 'Sign-flip randomization test — 조건 교환 가능성만 가정',
+    sign: 'Exact two-sided binomial sign test',
+    pearson: 'Pearson product-moment correlation · p from t = r√((n−2)/(1−r²))',
+    spearman: 'Spearman rank correlation (average ranks, t approximation)',
+    ols: 'Ordinary least squares · slope tested with t = b1/SE(b1)',
+    dipping: 'Ambulatory BP convention — normal 10–20 %, non-dipper 0–10 %, reverse < 0 %, extreme > 20 %',
+  };
+
+  const METHODOLOGY = [
+    { key: 'sbp', label: '수축기 혈압 (SBP)', unit: 'mmHg', kind: 'measured', formula: null, boundary: '커프 측정만이 혈압의 근거입니다. Oura API v2에는 혈압 엔드포인트가 없습니다.' },
+    { key: 'dbp', label: '이완기 혈압 (DBP)', unit: 'mmHg', kind: 'measured', formula: null, boundary: 'SBP ≤ DBP인 모순 쌍은 분석에서 제외하고 QC에 기록합니다.' },
+    { key: 'hr', label: '심박수 (HR)', unit: 'bpm', kind: 'measured', formula: null, boundary: '기기별 평균 구간이 다릅니다(야간 평균·안정 심박·순간 심박).' },
+    { key: 'rmssd', label: 'HRV — RMSSD', unit: 'ms', kind: 'measured', formula: null, boundary: 'Oura는 RMSSD, Apple Health는 SDNN을 보고합니다. 서로 변환하지 않습니다.' },
+    { key: 'sdnn', label: 'HRV — SDNN', unit: 'ms', kind: 'measured', formula: null, boundary: 'RMSSD와 다른 양이며 기록 구간도 다릅니다. 대체하지 않습니다.' },
+    { key: 'pm25', label: '초미세먼지 (PM2.5)', unit: 'µg/m³', kind: 'measured', formula: null, boundary: '측정소 값은 개인 흡입량이 아닙니다.' },
+    { key: 'temp_c', label: '기온', unit: '°C', kind: 'measured', formula: null, boundary: '측정 지점의 대표값이며 개인 노출과 다를 수 있습니다.' },
+    { key: 'green_index', label: '녹지지수', unit: '0–1', kind: 'measured', formula: null, boundary: '0–100 스케일은 자동으로 1/100 합니다.' },
+    { key: 'map', label: '평균동맥압 (MAP)', unit: 'mmHg', kind: 'derived', formula: 'DBP + (SBP − DBP) / 3', boundary: '동맥압 파형의 적분이 아니라 두 점에서 계산한 근사입니다.' },
+    { key: 'pp', label: '맥압 (PP)', unit: 'mmHg', kind: 'derived', formula: 'SBP − DBP', boundary: '큰 맥압은 플래그만 남기고 삭제하지 않습니다.' },
+    { key: 'dipping', label: '야간 하강률', unit: '%', kind: 'derived', formula: '(주간평균 − 야간평균) / 주간평균 × 100', boundary: '야간 22:00–06:00, 주·야 각 2회 이상 필요. 수면이 아니라 시계 시간 기준입니다.' },
+    { key: 'hrv_recovery', label: 'HRV 회복 지수', unit: 'index', kind: 'derived', formula: '야간 HRV / 주간 HRV × 100', boundary: '임상 기준값이 없습니다. 야간 측정이 없으면 그날 첫 측정을 기저로 씁니다.' },
+    { key: 'bp_load', label: '혈압 부하', unit: '%', kind: 'derived', formula: 'SBP ≥ 130 또는 DBP ≥ 80 비율', boundary: '역치는 코드에서 바꿀 수 있는 관례값이며 진단이 아닙니다.' },
+    { key: 'env_load', label: '환경 부하 (행별)', unit: '0–1', kind: 'exploratory', formula: 'mean( clamp(PM2.5/35) · clamp(|기온−22|/15) · (1−녹지) )', boundary: '혈압·HRV를 포함하지 않아 상관분석의 순환논리를 피했습니다.' },
+    { key: 'stress_index', label: '환경 스트레스 지수', unit: '0–100', kind: 'exploratory', formula: '0.30·BP부하 + 0.25·HRV억제 + 0.20·PM2.5 + 0.15·열부담 + 0.10·HR부하', boundary: '연구실 요약 지수이며 임상 위험 점수가 아닙니다.' },
+    { key: 'welch_t', label: 'Welch t-test', unit: 't, df, p', kind: 'derived', formula: 't = (x̄a − x̄b) / √(s²a/na + s²b/nb)', boundary: '서로 다른 관측일 때. 같은 사람의 반복 측정에는 대응표본을 쓰세요.' },
+    { key: 'paired_t', label: '대응표본 t-test', unit: 't, df = n−1', kind: 'derived', formula: 't = mean(d) / (SD(d)/√n)', boundary: 'subject_id가 양쪽 조건에 모두 있어야 합니다. 없으면 시간순 짝짓기로 대체합니다.' },
+    { key: 'cohens_dz', label: "Cohen's d_z", unit: 'SD units', kind: 'derived', formula: 'd_z = mean(a − b) / SD(a − b)', boundary: '대응 설계의 효과크기입니다. 독립표본 d와 같은 축으로 비교하지 않습니다.' },
+    { key: 'permutation_p', label: '순열(sign-flip) p', unit: 'p', kind: 'derived', formula: '5,000회 부호 뒤집기 중 관측 |평균차| 이상의 비율', boundary: '분포 가정이 없는 대안이며 몬테카를로 근사입니다.' },
+    { key: 'sign_test_p', label: '부호 검정 p', unit: 'p', kind: 'derived', formula: '양(+) 차이 개수에 대한 양측 이항검정', boundary: '차이의 크기를 무시하고 방향만 봅니다. 0 차이는 제외합니다.' },
+    { key: 'pearson_r', label: 'Pearson r', unit: '−1…1', kind: 'derived', formula: 'Σ(x−x̄)(y−ȳ) / √(Σ(x−x̄)²·Σ(y−ȳ)²)', boundary: '선형 관계만 봅니다. 자기상관이 있으면 p가 실제보다 작아집니다.' },
+    { key: 'spearman_rho', label: 'Spearman ρ', unit: '−1…1', kind: 'derived', formula: '평균 순위의 Pearson 상관', boundary: '단조 관계를 봅니다. 동점이 많으면 압축됩니다.' },
+    { key: 'ols_slope', label: '단순 선형회귀 기울기', unit: 'y per x', kind: 'derived', formula: 'b1 = Σ(x−x̄)(y−ȳ)/Σ(x−x̄)², b0 = ȳ − b1·x̄', boundary: '관측 범위 밖으로 외삽하지 않습니다. 공변량은 보정하지 않습니다.' },
+  ];
 
   /* ------------------------------------------------------------------ state */
   const state = {
@@ -969,12 +1579,15 @@
     qc: null,
     source: '—',
     fileName: '—',
+    files: [],
+    alignment: null,
     groupA: 'forest',
     groupB: 'urban',
     paired: false,
     corrX: 'pm25',
     corrY: 'sbp',
     hrvMetric: 'rmssd',
+    tolerance: '30',
   };
 
   /* --------------------------------------------------------------- rendering */
@@ -985,8 +1598,71 @@
     renderExposure();
     renderPreview();
     renderCharts();
-    $('exportCsv').disabled = !state.rows.length;
-    $('exportJson').disabled = !state.rows.length;
+    renderMethodology();
+    const disabled = !state.rows.length;
+    ['exportCsv', 'exportJson', 'exportMd'].forEach((id) => { const el = $(id); if (el) el.disabled = disabled; });
+    if ($('mergeBtn')) $('mergeBtn').disabled = state.files.length < 2;
+  }
+
+  function renderFiles() {
+    const list = $('fileList');
+    $('fileCount').textContent = state.files.length;
+    if (!state.files.length) {
+      list.innerHTML = '<li class="muted">아직 불러온 파일이 없습니다.</li>';
+      return;
+    }
+    list.innerHTML = state.files.map((file, index) => {
+      const role = roleOf(file.loaded.rows);
+      const labels = { bp: '혈압', wearable: '웨어러블', environment: '환경', other: '기타' };
+      return `<li>
+        <span class="file-name">${escapeHtml(file.name)}</span>
+        <span class="file-role role-${role}">${labels[role] || role}</span>
+        <span class="file-rows">${file.loaded.rows.length}행</span>
+        <button class="file-remove" type="button" data-index="${index}" aria-label="빼기">×</button>
+      </li>`;
+    }).join('');
+    list.querySelectorAll('.file-remove').forEach((button) => {
+      button.addEventListener('click', () => {
+        const index = Number(button.dataset.index);
+        state.files.splice(index, 1);
+        renderFiles();
+        if (state.files.length >= 2) mergeStreams();
+        else if (state.files.length === 1) adoptLoaded(state.files[0].loaded, state.files[0].name);
+        else resetAnalysis();
+      });
+    });
+  }
+
+  function renderAlignment() {
+    const box = $('alignReport');
+    if (!box) return;
+    const report = state.alignment;
+    if (!report) {
+      box.innerHTML = '<p class="muted">파일을 2개 이상 올리면 스트림별 결합 행 수와 매칭률을 보여줍니다.</p>';
+      return;
+    }
+    const label = { bp: '혈압', wearable: '웨어러블', environment: '환경', other: '기타' };
+    const rows = report.streams.map((stream) => `
+      <tr>
+        <td class="metric-name">${escapeHtml(stream.name)}</td>
+        <td>${label[stream.role] || stream.role}</td>
+        <td>${stream.matched_rows} / ${stream.rows}</td>
+        <td>${stream.unmatched_rows}</td>
+      </tr>`).join('');
+    const warnings = (report.warnings || []).map((w) => `<p class="warn">${escapeHtml(w)}</p>`).join('');
+    box.innerHTML = `
+      <div class="align-head">
+        <span class="align-badge">${report.mode === 'daily' ? '일별 집계' : `±${report.tolerance_minutes}분`}</span>
+        <span>앵커 <b>${label[report.anchor] || report.anchor}</b> · 매칭 <b>${report.anchors_matched}/${report.anchors}</b> (${report.match_rate_pct}%)</span>
+        <span class="muted">행 ${report.rows_in} → ${report.rows_out}</span>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table align-table">
+          <thead><tr><th>스트림</th><th>역할</th><th>결합 행</th><th>미결합</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${warnings}`;
   }
 
   function renderQc() {
@@ -1003,14 +1679,14 @@
 
     $('qcRows').textContent = `${qc.rowsOut} / ${qc.rowsIn}`;
     $('qcDays').textContent = qc.span ? `${qc.span.days}일` : '—';
-    $('qcCond').textContent = Object.entries(qc.conditions)
-      .map(([k, v]) => `${k} ${v}`).join(' · ') || '—';
+    $('qcCond').textContent = Object.entries(qc.conditions).map(([k, v]) => `${k} ${v}`).join(' · ') || '—';
     const removedTotal = Object.values(qc.removed).reduce((s, v) => s + v, 0);
     $('qcRemoved').textContent = `${removedTotal} · ${qc.duplicatesRemoved}`;
     $('qcGap').textContent = qc.maxGap ? `${fmt(qc.maxGap, 1)}시간` : '—';
     $('qcFlags').textContent = `${qc.flagged}행`;
 
     const notes = [];
+    if (qc.subjects.length > 1) notes.push(`<p>피험자 ${qc.subjects.length}명 · 대응표본 비교가 가능합니다.</p>`);
     const removedParts = Object.entries(qc.removed).map(([k, v]) => `${k.toUpperCase()} ${v}건`);
     if (removedTotal) notes.push(`<p class="warn">생리적 범위 밖 값을 제거했습니다 — ${removedParts.join(' · ')}</p>`);
     if (qc.inconsistent) notes.push(`<p class="warn">SBP ≤ DBP 모순 쌍 ${qc.inconsistent}건을 제외했습니다.</p>`);
@@ -1018,7 +1694,7 @@
     if (qc.gaps.length) notes.push(`<p>${GAP_HOURS}시간 이상 공백 ${qc.gaps.length}건 (최대 ${fmt(qc.maxGap, 1)}시간) — 보정하지 않고 그대로 비교합니다.</p>`);
     const missingHigh = Object.entries(qc.missing).filter(([, v]) => v > 15).map(([k, v]) => `${k.toUpperCase()} ${v}%`);
     if (missingHigh.length) notes.push(`<p>결측이 많은 열: ${missingHigh.join(' · ')}</p>`);
-    state.warnings.forEach((w) => notes.push(`<p class="warn">${w}</p>`));
+    state.warnings.forEach((w) => notes.push(`<p class="warn">${escapeHtml(w)}</p>`));
     if (!notes.length) notes.push('<p class="muted">범위·모순·중복 이상이 없습니다.</p>');
     $('qcNotes').innerHTML = notes.join('');
   }
@@ -1066,34 +1742,50 @@
       cards[5].innerHTML = `<span class="stat-label">환경 스트레스 지수</span><span class="stat-value">—</span><span class="stat-note">구성 요소 없음</span>`;
     }
 
-    $('summaryScope').textContent = `${stats.days}일 · ${stats.rows}행`;
+    $('summaryScope').textContent = `${stats.days}일 · ${stats.rows}행${stats.subjects > 1 ? ` · ${stats.subjects}명` : ''}`;
     $('chartMeta').textContent = `${fmtDate(rows[0].timestamp)} → ${fmtDate(rows[rows.length - 1].timestamp)}`;
     $('hrvLabel').textContent = state.hrvMetric === 'sdnn' ? 'SDNN' : 'RMSSD';
   }
 
   function renderCompare() {
+    const head = $('compareHead');
     const tbody = $('compareTable').querySelector('tbody');
+    const note = $('pairModeNote');
     const conditions = [...new Set(state.rows.map((r) => r.condition).filter(Boolean))];
     if (conditions.length < 2) {
       tbody.innerHTML = '<tr><td colspan="9" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
+      if (note) note.textContent = '조건 라벨이 두 개 이상 있어야 비교할 수 있습니다.';
       return;
     }
     const metrics = ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn'];
     const result = compareTable(state.rows, metrics, state.groupA, state.groupB, state.paired);
-    if (!result.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="muted">선택한 조건에 측정값이 부족합니다.</td></tr>';
+    const mode = result.mode;
+    const pairedMode = mode === 'subject' || mode === 'row';
+    head.innerHTML = pairedMode
+      ? `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d_z</th><th>효과</th><th>p</th><th>순열 p</th><th>95% CI</th></tr>`
+      : `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d</th><th>효과</th><th>p</th><th>95% CI</th></tr>`;
+    if (!result.rows.length) {
+      tbody.innerHTML = `<tr><td colspan="${pairedMode ? 10 : 9}" class="muted">선택한 조건에 측정값이 부족합니다.</td></tr>`;
       return;
     }
-    const nA = result[0].nA;
-    const nB = result[0].nB;
+    const first = result.rows[0];
     const foot = document.querySelector('#compare .table-foot');
+    const testLabel = mode === 'subject' ? `대응표본 t-test (피험자 ${result.nSubjects}명)`
+      : mode === 'row' ? '대응표본 t-test (시간순 짝짓기)'
+        : 'Welch t-test (독립표본)';
     if (foot) {
-      foot.textContent = `A = ${state.groupA} (n=${nA}) · B = ${state.groupB} (n=${nB}) · ${state.paired ? '대응표본 t-test' : 'Welch t-test'} · `
+      foot.textContent = `A = ${state.groupA} (n=${first.nA}) · B = ${state.groupB} (n=${first.nB}) · ${testLabel} · `
         + '효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 다중비교 보정 전 값입니다.';
     }
+    if (note) {
+      note.textContent = result.note || (mode === 'subject'
+        ? `subject_id 대응표본 — 양쪽 조건에 모두 측정된 ${result.nSubjects}명의 평균을 짝지었습니다.`
+        : pairedMode ? '대응표본(시간순 짝짓기)으로 계산했습니다.' : '독립표본(Welch)으로 계산했습니다. 같은 사람의 두 조건이라면 대응표본을 켜세요.');
+    }
     const label = (m) => METRIC_LABELS[m] || m;
-    tbody.innerHTML = result.map((row) => {
+    tbody.innerHTML = result.rows.map((row) => {
       const sig = row.p < 0.05;
+      const dValue = pairedMode ? row.dz : row.d;
       const dClass = row.effect === 'large' ? 'large' : row.effect === 'medium' ? 'medium' : row.effect === 'negligible' ? 'negligible' : '';
       const diffClass = row.diff > 0 ? 'pos' : row.diff < 0 ? 'neg' : '';
       return `<tr>
@@ -1102,9 +1794,10 @@
         <td>${fmt(row.meanB, 1)}</td>
         <td class="${diffClass}">${row.diff > 0 ? '+' : ''}${fmt(row.diff, 1)}</td>
         <td class="${diffClass}">${pctText(row.pct, 1)}</td>
-        <td>${fmt(row.d, 2)}</td>
+        <td>${fmt(dValue, 2)}</td>
         <td><span class="effect-tag ${dClass}">${row.effect}</span></td>
-        <td>${row.p < 0.0001 ? '&lt;0.0001' : row.p < 0.001 ? '&lt;0.001' : row.p.toFixed(3)}</td>
+        <td>${fmtP(row.p)}</td>
+        ${pairedMode ? `<td>${fmtP(row.permP)}</td>` : ''}
         <td class="muted">${fmt(row.ciLow, 1)} … ${fmt(row.ciHigh, 1)}</td>
       </tr>`;
     }).join('');
@@ -1132,19 +1825,35 @@
   function renderPreview() {
     const tbody = $('previewTable').querySelector('tbody');
     if (!state.rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="muted">—</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">—</td></tr>';
       return;
     }
     tbody.innerHTML = state.rows.slice(0, 8).map((row) => `<tr>
       <td class="metric-name">${fmtStamp(row.timestamp)}</td>
+      <td>${row[SUBJECT] || '—'}</td>
       <td>${row.condition || '—'}</td>
       <td>${fmt(row.sbp, 0)}</td>
       <td>${fmt(row.dbp, 0)}</td>
       <td>${fmt(row.hr, 0)}</td>
       <td>${fmt(row.rmssd, 0)}</td>
       <td>${fmt(row.pm25, 1)}</td>
-      <td class="muted">${row.flags || '—'}</td>
+      <td class="muted">${escapeHtml(row.flags || '—')}</td>
     </tr>`).join('');
+  }
+
+  function renderMethodology() {
+    const tbody = $('methodologyTable').querySelector('tbody');
+    const refs = $('methodRefs');
+    const rows = METHODOLOGY.map((item) => `<tr>
+      <td class="metric-name">${escapeHtml(item.label)}</td>
+      <td><span class="kind-badge kind-${item.kind}">${KIND_LABELS[item.kind] || item.kind}</span></td>
+      <td>${escapeHtml(item.unit || '—')}</td>
+      <td class="mono-cell">${escapeHtml(item.formula || '—')}</td>
+      <td class="boundary-cell">${escapeHtml(item.boundary)}</td>
+    </tr>`).join('');
+    tbody.innerHTML = rows;
+    $('methodologyScope').textContent = `${METHODOLOGY.length}개 지표 · v${VERSION}`;
+    refs.innerHTML = Object.values(REFERENCES).map((ref) => `<li>${escapeHtml(ref)}</li>`).join('');
   }
 
   /* ----------------------------------------------------------------- charts */
@@ -1153,7 +1862,6 @@
   const LINE = '#dedbd0';
   const BRONZE = '#d97757';
   const SAGE = '#5c6b5a';
-  const CREAM = '#faf9f5';
 
   function setupCanvas(canvas) {
     const dpr = window.devicePixelRatio || 1;
@@ -1273,7 +1981,6 @@
       }
     });
 
-    // direct label on the last value of the first series
     const first = series[0];
     const valid = rows.filter((r) => Number.isFinite(r[first.key]));
     if (valid.length && options.endLabel !== false) {
@@ -1298,7 +2005,7 @@
       ctx.font = '12px -apple-system, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('선택한 지표에 함께 있는 값이 없습니다', width / 2, height / 2);
-      return { r: NaN, n: 0 };
+      return { available: false, n: 0 };
     }
     const xs = pairs.map((p) => p[xKey]);
     const ys = pairs.map((p) => p[yKey]);
@@ -1311,25 +2018,16 @@
         align: i === 0 ? 'left' : i === 4 ? 'right' : 'center',
       })));
 
-    const stat = pearson(rows, xKey, yKey);
-    // regression line
-    if (Number.isFinite(stat.r)) {
-      const mx = mean(pairs.map((p) => p[xKey]));
-      const my = mean(pairs.map((p) => p[yKey]));
-      const sxx = pairs.reduce((s, p) => s + (p[xKey] - mx) ** 2, 0);
-      const sxy = pairs.reduce((s, p) => s + (p[xKey] - mx) * (p[yKey] - my), 0);
-      if (sxx > 0) {
-        const slope = sxy / sxx;
-        const intercept = my - slope * mx;
-        ctx.strokeStyle = BRONZE;
-        ctx.setLineDash([5, 4]);
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(axes.x(xMin), axes.y(clamp(intercept + slope * xMin, yMin, yMax)));
-        ctx.lineTo(axes.x(xMax), axes.y(clamp(intercept + slope * xMax, yMin, yMax)));
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
+    const stat = correlationRow(rows, xKey, yKey);
+    if (stat.available && Number.isFinite(stat.slope)) {
+      ctx.strokeStyle = BRONZE;
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(axes.x(xMin), axes.y(clamp(stat.intercept + stat.slope * xMin, yMin, yMax)));
+      ctx.lineTo(axes.x(xMax), axes.y(clamp(stat.intercept + stat.slope * xMax, yMin, yMax)));
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     pairs.forEach((point) => {
@@ -1341,12 +2039,12 @@
     });
     ctx.globalAlpha = 1;
 
-    if (Number.isFinite(stat.r)) {
+    if (stat.available) {
       ctx.fillStyle = INK;
       ctx.font = '600 11px SFMono-Regular, Menlo, monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(`r = ${stat.r.toFixed(2)} · n = ${stat.n}`, axes.padLeft + 8, axes.padTop + 6);
+      ctx.fillText(`r = ${stat.r.toFixed(2)} · ρ = ${stat.rho.toFixed(2)} · n = ${stat.n}`, axes.padLeft + 8, axes.padTop + 6);
     }
     return stat;
   }
@@ -1359,16 +2057,14 @@
       { key: 'dbp', color: 'rgba(20,20,19,0.5)', width: 1.4, dots: false },
     ], {});
 
-    const hrvKey = state.hrvMetric;
-    drawSeries($('hrvChart'), rows, [
-      { key: hrvKey, color: SAGE, width: 1.8 },
-    ], {});
+    drawSeries($('hrvChart'), rows, [{ key: state.hrvMetric, color: SAGE, width: 1.8 }], {});
 
     const stat = drawScatter($('corrChart'), rows, state.corrX, state.corrY);
     $('corrTitle').textContent = `${METRIC_LABELS[state.corrX] || state.corrX} × ${METRIC_LABELS[state.corrY] || state.corrY}`;
-    if (Number.isFinite(stat.r)) {
+    if (stat.available) {
       const strength = Math.abs(stat.r) < 0.2 ? '거의 없음' : Math.abs(stat.r) < 0.4 ? '약함' : Math.abs(stat.r) < 0.6 ? '중간' : '강함';
-      $('corrNote').textContent = `Pearson r = ${stat.r.toFixed(2)} (${stat.direction || (stat.r >= 0 ? '양의' : '음의')} 상관, ${strength}) · n = ${stat.n} · 상관은 인과가 아닙니다.`;
+      $('corrNote').textContent = `Pearson r = ${stat.r.toFixed(2)} (${strength}, ${stat.r >= 0 ? '양의' : '음의'} 상관) · `
+        + `Spearman ρ = ${stat.rho.toFixed(2)} · 기울기 ${round(stat.slope, 3)} (p=${fmtP(stat.slopeP)}) · n = ${stat.n} · 상관은 인과가 아닙니다.`;
     } else {
       $('corrNote').textContent = '상관을 계산할 공통 측정값이 부족합니다.';
     }
@@ -1379,17 +2075,22 @@
     const conditions = [...new Set(state.rows.map((r) => r.condition).filter(Boolean))];
     const fallback = conditions.length ? conditions : ['forest', 'urban'];
     const build = (select, value) => {
-      select.innerHTML = fallback.map((c) => `<option value="${c}">${c}</option>`).join('');
+      select.innerHTML = fallback.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
       select.value = fallback.includes(value) ? value : fallback[0];
     };
     build($('groupA'), state.groupA);
     build($('groupB'), state.groupB);
     state.groupA = $('groupA').value;
     state.groupB = $('groupB').value;
+    if (state.groupB === state.groupA) {
+      const other = fallback.find((c) => c !== state.groupA);
+      if (other) { state.groupB = other; $('groupB').value = other; }
+    }
 
     const metricOptions = [
       ['pm25', 'PM2.5'], ['green_index', '녹지'], ['temp_c', '기온'], ['humidity_pct', '습도'],
-      ['sbp', 'SBP'], ['dbp', 'DBP'], ['hr', 'HR'], ['rmssd', 'RMSSD'], ['sdnn', 'SDNN'],
+      ['env_load', '환경부하'], ['sbp', 'SBP'], ['dbp', 'DBP'], ['map', 'MAP'], ['hr', 'HR'],
+      ['rmssd', 'RMSSD'], ['sdnn', 'SDNN'],
     ];
     const fill = (select, value) => {
       select.innerHTML = metricOptions.map(([key, label]) => `<option value="${key}">${label}</option>`).join('');
@@ -1409,12 +2110,12 @@
       list.innerHTML = '<li class="muted">매핑된 열이 없습니다.</li>';
       return;
     }
-    list.innerHTML = entries.map(([canonical, raw]) => `<li><span>${raw}</span><span class="arrow">→</span><span>${canonical}</span></li>`).join('');
+    list.innerHTML = entries.map(([canonical, raw]) => `<li><span>${escapeHtml(raw)}</span><span class="arrow">→</span><span>${escapeHtml(canonical)}</span></li>`).join('');
   }
 
   /* ------------------------------------------------------------------- load */
   function adopt(loaded, fileName) {
-    const cleaned = cleanRows(loaded.rows);
+    const cleaned = cleanRows(loaded.rows.map((row) => ({ ...row })));
     if (!cleaned.rows.length) throw new Error('유효한 측정 행이 없습니다. 시각과 값 열을 확인해 주세요.');
     state.rows = addDerived(cleaned.rows);
     state.qc = cleaned.qc;
@@ -1426,41 +2127,109 @@
 
     if (!state.rows.some((r) => Number.isFinite(r.rmssd)) && state.rows.some((r) => Number.isFinite(r.sdnn))) {
       state.hrvMetric = 'sdnn';
+    } else if (state.rows.some((r) => Number.isFinite(r.rmssd))) {
+      state.hrvMetric = 'rmssd';
     }
 
-    $('fileMeta').innerHTML = `<b>${fileName}</b> · ${loaded.source.toUpperCase()} · ${cleaned.qc.rowsOut}행 유효 · ` +
-      `${Object.keys(state.mapping).length}개 열 인식${state.unmapped.length ? ` · 미인식 ${state.unmapped.length}` : ''}`;
+    $('fileMeta').innerHTML = `<b>${escapeHtml(fileName)}</b> · ${escapeHtml(String(loaded.source).toUpperCase())} · ${cleaned.qc.rowsOut}행 유효 · `
+      + `${Object.keys(state.mapping).length}개 열 인식${state.unmapped.length ? ` · 미인식 ${state.unmapped.length}` : ''}`;
 
     renderMapping();
     populateSelectors();
     renderAll();
+    renderAlignment();
   }
 
-  async function handleFile(file) {
+  function adoptLoaded(loaded, fileName) {
+    state.alignment = null;
+    adopt(loaded, fileName);
+  }
+
+  function adoptAligned(aligned, label) {
+    state.alignment = aligned.report;
+    if (!aligned.rows.length) throw new Error('결합된 행이 없습니다. 허용 오차나 파일 구성을 확인해 주세요.');
+    const merged = { rows: aligned.rows, mapping: { ...state.files.reduce((acc, f) => ({ ...acc, ...f.loaded.mapping }), {}) }, unmapped: [], warnings: [], source: 'aligned' };
+    adopt(merged, label);
+  }
+
+  async function handleFiles(fileList) {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+    for (const file of incoming) {
+      try {
+        const text = await file.text();
+        const loaded = loadText(text, file.name);
+        state.files.push({ name: file.name, loaded });
+      } catch (error) {
+        console.error(error);
+        toast(`${file.name} · ${error.message}`);
+      }
+    }
+    renderFiles();
+    if (!state.files.length) return;
+    if (state.files.length === 1) {
+      adoptLoaded(state.files[0].loaded, state.files[0].name);
+      toast(`${state.files[0].name} · ${state.qc.rowsOut}행을 분석했습니다`);
+    } else {
+      mergeStreams();
+    }
+  }
+
+  function mergeStreams() {
+    if (state.files.length < 2) {
+      if (state.files.length === 1) adoptLoaded(state.files[0].loaded, state.files[0].name);
+      return;
+    }
     try {
-      const text = await file.text();
-      const loaded = loadText(text, file.name);
-      adopt(loaded, file.name);
-      toast(`${file.name} · ${state.qc.rowsOut}행을 분석했습니다`);
+      const daily = state.tolerance === 'daily';
+      const tolerance = daily ? 0 : Number(state.tolerance) || 0;
+      const aligned = alignStreams(
+        state.files.map((file) => ({ name: file.name, rows: file.loaded.rows })),
+        tolerance,
+        daily ? 'daily' : 'tolerance',
+      );
+      const label = state.files.map((f) => f.name).join(' + ');
+      adoptAligned(aligned, label);
+      toast(`스트림 ${state.files.length}개를 ${daily ? '일별로' : `±${tolerance}분으로`} 결합했습니다 · 매칭 ${aligned.report.match_rate_pct}%`);
     } catch (error) {
       console.error(error);
-      toast(`불러오지 못했습니다: ${error.message}`);
-      $('fileMeta').textContent = `오류 · ${error.message}`;
+      toast(`결합하지 못했습니다: ${error.message}`);
     }
   }
 
   function loadDemo() {
     const rows = generateDemo();
-    const loaded = { rows, mapping: { timestamp: 'timestamp', condition: 'condition', sbp: 'sbp', dbp: 'dbp', hr: 'hr', rmssd: 'rmssd', sdnn: 'sdnn', pm25: 'pm25', temp_c: 'temp_c', green_index: 'green_index', activity: 'activity' }, unmapped: [], warnings: [], source: 'synthetic' };
-    adopt(loaded, 'synthetic_demo_14d.csv');
+    state.files = [];
+    renderFiles();
+    adoptLoaded({
+      rows,
+      mapping: { timestamp: 'timestamp', subject_id: 'subject_id', condition: 'condition', sbp: 'sbp', dbp: 'dbp', hr: 'hr', rmssd: 'rmssd', sdnn: 'sdnn', pm25: 'pm25', temp_c: 'temp_c', green_index: 'green_index', activity: 'activity' },
+      unmapped: [], warnings: [], source: 'synthetic',
+    }, 'synthetic_demo_14d.csv');
     toast('합성 데모 14일 · 도시 가로 vs 산림치유를 계산했습니다');
   }
 
-  function reset() {
+  function loadCohortDemo() {
+    const rows = generateCohort(6, 8, 123);
+    const streams = splitCohortStreams(rows);
+    state.files = streams.map((stream) => ({
+      name: stream.name,
+      loaded: { rows: stream.rows, mapping: { timestamp: 'timestamp', subject_id: 'subject_id', condition: 'condition' }, unmapped: [], warnings: [], source: 'synthetic' },
+    }));
+    state.tolerance = '30';
+    const select = $('toleranceSelect');
+    if (select) select.value = '30';
+    renderFiles();
+    mergeStreams();
+    toast('코호트 데모 6인 · 3개 스트림을 ±30분으로 결합했습니다');
+  }
+
+  function resetAnalysis() {
     state.rows = [];
     state.qc = null;
     state.mapping = {};
     state.warnings = [];
+    state.alignment = null;
     state.fileName = '—';
     $('fileMeta').textContent = '아직 불러온 파일이 없습니다.';
     $('qcStatus').textContent = '대기';
@@ -1471,20 +2240,29 @@
     ['qcRows', 'qcDays', 'qcCond', 'qcRemoved', 'qcGap', 'qcFlags', 'summaryScope', 'chartMeta'].forEach((id) => { $(id).textContent = '—'; });
     $('compareTable').querySelector('tbody').innerHTML = '<tr><td colspan="9" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
     $('exposureTable').querySelector('tbody').innerHTML = '<tr><td colspan="7" class="muted">—</td></tr>';
-    $('previewTable').querySelector('tbody').innerHTML = '<tr><td colspan="8" class="muted">—</td></tr>';
+    $('previewTable').querySelector('tbody').innerHTML = '<tr><td colspan="9" class="muted">—</td></tr>';
     $('exportCsv').disabled = true;
     $('exportJson').disabled = true;
+    $('exportMd').disabled = true;
     const cards = $('summaryCards').children;
-    const labels = ['평균 혈압|SBP / DBP', 'MAP · 맥압|mmHg', '야간 하강률|22:00–06:00', 'HRV 회복 지수|야간/주간 RMSSD', '환경 노출|PM2.5 · 기온', '환경 스트레스 지수|0–100 연구 지표'];
+    const labels = ['평균 혈압|SBP / DBP', 'MAP · 맥압|mmHg', '야간 하강률|22:00–06:00', 'HRV 회복 지수|야간/주간 HRV', '환경 노출|PM2.5 · 기온', '환경 스트레스 지수|0–100 연구 지표'];
     cards.forEach((card, index) => {
       const [label, note] = labels[index].split('|');
       card.innerHTML = `<span class="stat-label">${label}</span><span class="stat-value">—</span><span class="stat-note">${note}</span>`;
     });
-    [['bpChart'], ['hrvChart'], ['corrChart']].forEach(([id]) => {
+    ['bpChart', 'hrvChart', 'corrChart'].forEach((id) => {
       const canvas = $(id);
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
+    renderAlignment();
+  }
+
+  function reset() {
+    state.files = [];
+    renderFiles();
+    resetAnalysis();
+    toast('초기화했습니다');
   }
 
   /* ---------------------------------------------------------------- export */
@@ -1500,28 +2278,26 @@
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
-  function round(value, digits = 3) {
-    if (!Number.isFinite(value)) return null;
-    const factor = 10 ** digits;
-    return Math.round(value * factor) / factor;
-  }
-
   function buildBundle() {
     const rows = state.rows;
     const stats = summarize(rows, state.hrvMetric);
     const comparison = compareTable(rows, ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn'], state.groupA, state.groupB, state.paired);
     const exposure = conditionSummary(rows, ['pm25', 'pm10', 'temp_c', 'humidity_pct', 'green_index', 'forest']);
     const conditions = conditionSummary(rows, ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn', 'pm25', 'temp_c']);
-    const corr = pearson(rows, state.corrX, state.corrY);
+    const correlations = correlationRows(rows);
+    const nSubjects = stats.subjects;
+    const pairedBy = comparison.mode;
     return {
       meta: {
+        schema_version: SCHEMA_VERSION,
         generated_at: new Date().toISOString(),
-        heartmetric_version: '0.1.0-web',
+        heartmetric_version: `${VERSION}-web`,
         license: 'MIT · Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University',
-        comparison: { a: state.groupA, b: state.groupB, paired: state.paired },
+        comparison: { a: state.groupA, b: state.groupB, paired: state.paired, paired_by: pairedBy, n_subjects: nSubjects, note: comparison.note || undefined },
         night_window: '22:00–06:00',
-        input: { file: state.fileName, source: state.source },
-        disclaimer: 'Research summary of the submitted series; not a medical diagnosis.',
+        alignment: state.alignment || undefined,
+        input: { file: state.fileName, source: state.source, streams: state.files.map((f) => f.name) },
+        disclaimer: 'Research summary of the submitted series; not a medical diagnosis. The hardware boundary stands: a cuff measure is the only blood-pressure source and Oura reports no mmHg BP.',
       },
       quality: {
         rows_in: state.qc.rowsIn,
@@ -1533,12 +2309,14 @@
         max_gap_hours: state.qc.maxGap,
         gaps: state.qc.gaps,
         conditions: state.qc.conditions,
+        subjects: state.qc.subjects,
         span: state.qc.span,
         warnings: state.warnings,
       },
       summary: {
         rows: stats.rows,
         days: stats.days,
+        subjects: stats.subjects,
         sbp: round(stats.sbp, 1),
         dbp: round(stats.dbp, 1),
         map: round(stats.map, 1),
@@ -1576,8 +2354,10 @@
       },
       conditions: conditions.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === 'number' ? round(v, 2) : v]))),
       exposure: exposure.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === 'number' ? round(v, 2) : v]))),
-      comparison: comparison.map((row) => ({
+      comparison: comparison.rows.map((row) => ({
         metric: row.metric,
+        paired_by: pairedBy,
+        n_subjects: row.nSubjects,
         n_a: row.nA,
         mean_a: round(row.meanA, 2),
         n_b: row.nB,
@@ -1585,18 +2365,38 @@
         diff: round(row.diff, 2),
         pct_change: round(row.pct, 1),
         cohens_d: round(row.d, 2),
+        cohens_dz: round(row.dz, 2),
         effect: row.effect,
         test: row.test,
-        // never report an exact 0 for a p-value: keep 3 significant digits below 1e-4
-        p_value: row.p > 0 && row.p < 0.0001 ? Number(row.p.toPrecision(3)) : round(row.p, 4),
+        p_value: Number.isFinite(row.p) ? Number(row.p.toPrecision(4)) : null,
+        permutation_p: Number.isFinite(row.permP) ? Number(row.permP.toPrecision(4)) : null,
+        sign_test_p: Number.isFinite(row.signP) ? Number(row.signP.toPrecision(4)) : null,
         ci_low: round(row.ciLow, 2),
         ci_high: round(row.ciHigh, 2),
       })),
       daily: dailyTable(rows),
-      correlations: [{ x: state.corrX, y: state.corrY, r: round(corr.r, 2), n: corr.n }],
+      correlations: correlations.map((row) => ({
+        x: row.x, y: row.y, n: row.n,
+        pearson_r: round(row.r, 3),
+        pearson_p: Number.isFinite(row.rP) ? Number(row.rP.toPrecision(3)) : null,
+        spearman_rho: round(row.rho, 3),
+        spearman_p: Number.isFinite(row.rhoP) ? Number(row.rhoP.toPrecision(3)) : null,
+        slope: round(row.slope, 4),
+        intercept: round(row.intercept, 3),
+        slope_p: Number.isFinite(row.slopeP) ? Number(row.slopeP.toPrecision(3)) : null,
+        r_squared: round(row.r2, 3),
+      })),
+      methodology: {
+        version: VERSION,
+        note: 'measured = recorded by a device; derived = arithmetic on measured values; exploratory = laboratory summary with chosen weights. None is a diagnosis.',
+        references: REFERENCES,
+        indicators: Object.fromEntries(METHODOLOGY.map((item) => [item.key, item])),
+      },
       series: rows.map((row) => {
-        const item = { timestamp: fmtStamp(row.timestamp), condition: row.condition || undefined };
-        METRIC_COLUMNS.forEach((key) => { if (Number.isFinite(row[key])) item[key] = round(row[key], 2); });
+        const item = { timestamp: fmtStamp(row.timestamp) };
+        if (row[SUBJECT]) item.subject_id = row[SUBJECT];
+        if (row.condition) item.condition = row.condition;
+        METRIC_COLUMNS.concat(DERIVED_COLUMNS).forEach((key) => { if (Number.isFinite(row[key])) item[key] = round(row[key], 2); });
         if (row.activity) item.activity = row.activity;
         if (row.flags) item.flags = row.flags;
         return item;
@@ -1606,16 +2406,17 @@
 
   function exportCsv() {
     if (!state.rows.length) return;
-    const header = STANDARD_COLUMNS.join(',');
+    const header = STANDARD_COLUMNS.concat(DERIVED_COLUMNS).join(',');
     const escape = (value) => {
       const text = value === null || value === undefined ? '' : String(value);
       return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
     };
     const lines = [header];
     state.rows.forEach((row) => {
-      lines.push(STANDARD_COLUMNS.map((column) => {
+      lines.push(STANDARD_COLUMNS.concat(DERIVED_COLUMNS).map((column) => {
         if (column === 'timestamp') return escape(fmtStamp(row.timestamp));
         if (column === 'condition') return escape(row.condition || '');
+        if (column === SUBJECT) return escape(row[SUBJECT] || '');
         if (column === 'activity' || column === 'notes' || column === 'source' || column === 'flags') {
           return escape(row[column] || '');
         }
@@ -1631,7 +2432,110 @@
     if (!state.rows.length) return;
     const bundle = buildBundle();
     download(`heartmetric_bundle_${fmtDate(new Date())}.json`, JSON.stringify(bundle, null, 2), 'application/json');
-    toast('분석 번들 JSON을 내려받았습니다');
+    toast('분석 번들(JSON, schema 0.2.0)을 내려받았습니다');
+  }
+
+  function mdCell(value, digits = 2) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(digits) : '—';
+    return String(value).replace(/\|/g, '\\|');
+  }
+
+  function markdownReport() {
+    const bundle = buildBundle();
+    const meta = bundle.meta;
+    const quality = bundle.quality;
+    const summary = bundle.summary;
+    const lines = [];
+    lines.push('# HEARTMETRIC 분석 리포트');
+    lines.push('');
+    lines.push(`**FEI · HEL Lab, 경상국립대학교** · v${VERSION} (bundle schema ${SCHEMA_VERSION})  `);
+    lines.push(`생성: ${meta.generated_at} · 100% 로컬 실행 · MIT License`);
+    lines.push('');
+    lines.push('> 연구 요약입니다. 진단이 아니며, 커프 혈압 측정과 의료진의 판단이 언제나 기준입니다. Oura Health Oy · Apple Inc.와 제휴하지 않은 독립 프로젝트입니다.');
+    lines.push('');
+    lines.push('## 1. 데이터와 품질');
+    lines.push('');
+    lines.push(`- 유효 행: **${quality.rows_out}** / 입력 ${quality.rows_in}`);
+    lines.push(`- 피험자: ${quality.subjects.length ? quality.subjects.join(', ') : '—'}`);
+    if (quality.span) lines.push(`- 관측 기간: ${quality.span.start} → ${quality.span.end} (${quality.span.days}일)`);
+    lines.push(`- 조건: ${Object.entries(quality.conditions).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}`);
+    lines.push(`- 제거: 범위 밖 ${Object.values(quality.removed_out_of_range).reduce((s, v) => s + v, 0)}건 · 모순 쌍 ${quality.removed_inconsistent}건 · 중복 ${quality.duplicates_removed}건`);
+    lines.push(`- 최대 공백: ${quality.max_gap_hours}시간 (보정하지 않음)`);
+    const align = bundle.meta.alignment;
+    if (align) {
+      lines.push(`- 스트림 결합: ${align.mode} · 허용 오차 ${align.tolerance_minutes}분 · 앵커 매칭 ${align.anchors_matched}/${align.anchors} (${align.match_rate_pct}%)`);
+      align.streams.forEach((stream) => {
+        lines.push(`  - ${stream.name} (${stream.role}): ${stream.matched_rows}/${stream.rows}행 결합`);
+      });
+    }
+    lines.push('');
+    lines.push('## 2. 요약 지표');
+    lines.push('');
+    lines.push('| 지표 | 값 | 단위 | 근거 구분 |');
+    lines.push('| --- | --- | --- | --- |');
+    lines.push(`| 평균 혈압 (SBP/DBP) | ${mdCell(summary.sbp, 1)} / ${mdCell(summary.dbp, 1)} | mmHg | measured |`);
+    lines.push(`| MAP · 맥압 | ${mdCell(summary.map, 1)} / ${mdCell(summary.pp, 1)} | mmHg | derived |`);
+    if (summary.dipping.available) lines.push(`| 야간 하강률 | ${mdCell(summary.dipping.dipping_pct, 1)}% (${summary.dipping.category}) | % | derived |`);
+    if (summary.hrv_recovery.available) lines.push(`| HRV 회복 지수 | ${mdCell(summary.hrv_recovery.index, 1)} (${summary.hrv_recovery.band}, baseline ${summary.hrv_recovery.baseline}) | index | derived |`);
+    if (summary.stress_index.available) lines.push(`| 환경 스트레스 지수 | ${mdCell(summary.stress_index.index, 1)} (${summary.stress_index.band}) | 0–100 | exploratory |`);
+    lines.push(`| 평균 PM2.5 | ${mdCell(summary.pm25, 1)} | µg/m³ | measured |`);
+    lines.push(`| 평균 기온 | ${mdCell(summary.temp_c, 1)} | °C | measured |`);
+    lines.push('');
+    lines.push('## 3. 조건별 비교');
+    lines.push('');
+    lines.push(`A = **${meta.comparison.a}**, B = **${meta.comparison.b}** · 방식: \`${meta.comparison.paired_by}\` · Δ는 A − B`);
+    if (meta.comparison.note) lines.push('');
+    if (meta.comparison.note) lines.push(`> ${meta.comparison.note}`);
+    lines.push('');
+    const paired = meta.comparison.paired_by === 'subject' || meta.comparison.paired_by === 'row';
+    lines.push(paired
+      ? '| metric | n | mean_a | mean_b | diff | cohens_dz | effect | p | permutation_p | ci_low | ci_high |'
+      : '| metric | n | mean_a | mean_b | diff | cohens_d | effect | p | ci_low | ci_high |');
+    lines.push(paired ? '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    bundle.comparison.forEach((row) => {
+      lines.push(paired
+        ? `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_dz, 2)} | ${row.effect} | ${row.p_value} | ${row.permutation_p == null ? '—' : row.permutation_p} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`
+        : `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_d, 2)} | ${row.effect} | ${row.p_value} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`);
+    });
+    lines.push('');
+    lines.push('효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 다중비교 보정 전 값입니다. 대응표본에서는 d_z를 읽으세요.');
+    lines.push('');
+    lines.push('## 4. 환경 노출 × 심혈관 상관');
+    lines.push('');
+    lines.push('| x | y | n | pearson_r | pearson_p | spearman_rho | slope | slope_p | r_squared |');
+    lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    bundle.correlations.forEach((row) => {
+      lines.push(`| ${row.x} | ${row.y} | ${row.n} | ${mdCell(row.pearson_r, 3)} | ${row.pearson_p == null ? '—' : row.pearson_p} | ${mdCell(row.spearman_rho, 3)} | ${mdCell(row.slope, 4)} | ${row.slope_p == null ? '—' : row.slope_p} | ${mdCell(row.r_squared, 3)} |`);
+    });
+    lines.push('');
+    lines.push('r은 선형, ρ는 단조 관계입니다. 기울기는 OLS 추정치이며 관측 범위 밖으로 외삽하지 않습니다. 상관은 인과가 아닙니다.');
+    lines.push('');
+    lines.push('## 5. 조건별 평균');
+    lines.push('');
+    lines.push('| 조건 | n | SBP | DBP | HR | RMSSD | PM2.5 |');
+    lines.push('| --- | --- | --- | --- | --- | --- | --- |');
+    bundle.conditions.forEach((row) => {
+      lines.push(`| ${row.condition} | ${row.n} | ${mdCell(row.sbp, 1)} | ${mdCell(row.dbp, 1)} | ${mdCell(row.hr, 1)} | ${mdCell(row.rmssd, 1)} | ${mdCell(row.pm25, 1)} |`);
+    });
+    lines.push('');
+    lines.push('## 6. 지표 정의와 경계');
+    lines.push('');
+    lines.push('| 지표 | 구분 | 수식 | 경계 |');
+    lines.push('| --- | --- | --- | --- |');
+    METHODOLOGY.forEach((item) => {
+      lines.push(`| ${item.label} | ${item.kind} | ${item.formula || '—'} | ${item.boundary} |`);
+    });
+    lines.push('');
+    lines.push(`인용: FEI · HEL Lab, Gyeongsang National University. (2026). HEARTMETRIC (v${VERSION}). MIT License.`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  function exportMd() {
+    if (!state.rows.length) return;
+    download(`heartmetric_report_${fmtDate(new Date())}.md`, markdownReport(), 'text/markdown;charset=utf-8');
+    toast('Markdown 리포트를 내려받았습니다');
   }
 
   /* ----------------------------------------------------------------- events */
@@ -1651,18 +2555,26 @@
       dropzone.classList.remove('dragover');
     }));
     dropzone.addEventListener('drop', (event) => {
-      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file) handleFile(file);
+      const files = event.dataTransfer && event.dataTransfer.files;
+      if (files && files.length) handleFiles(files);
     });
     input.addEventListener('change', () => {
-      if (input.files && input.files[0]) handleFile(input.files[0]);
+      if (input.files && input.files.length) handleFiles(input.files);
       input.value = '';
     });
 
     $('demoBtn').addEventListener('click', loadDemo);
+    $('cohortBtn').addEventListener('click', loadCohortDemo);
     $('resetBtn').addEventListener('click', reset);
+    $('clearFilesBtn').addEventListener('click', () => { state.files = []; renderFiles(); resetAnalysis(); });
+    $('mergeBtn').addEventListener('click', mergeStreams);
+    $('toleranceSelect').addEventListener('change', (event) => {
+      state.tolerance = event.target.value;
+      if (state.files.length >= 2) mergeStreams();
+    });
     $('exportCsv').addEventListener('click', exportCsv);
     $('exportJson').addEventListener('click', exportJson);
+    $('exportMd').addEventListener('click', exportMd);
 
     $('groupA').addEventListener('change', (event) => { state.groupA = event.target.value; renderCompare(); });
     $('groupB').addEventListener('change', (event) => { state.groupB = event.target.value; renderCompare(); });
@@ -1683,6 +2595,7 @@
   /* ------------------------------------------------------------------- init */
   function init() {
     bind();
+    renderMethodology();
     try {
       loadDemo();
     } catch (error) {
@@ -1695,5 +2608,19 @@
   else init();
 
   // exposed for verification in the live page
-  window.HEARTMETRIC = { state, loadText, cleanRows, compareTable, generateDemo, buildBundle };
+  window.HEARTMETRIC = {
+    version: VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    state,
+    loadText,
+    cleanRows,
+    alignStreams,
+    roleOf,
+    compareTable,
+    correlationRow,
+    generateDemo,
+    generateCohort,
+    buildBundle,
+    markdownReport,
+  };
 })();
