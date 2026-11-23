@@ -728,7 +728,7 @@ table.data .strong { color: var(--bronze-deep); font-weight: 600; }
 .kind-badge.kind-exploratory { background: #eaf0e7; border-color: #c9d5c5; color: #3f513d; }
 
 .method-table { white-space: normal; table-layout: fixed; width: 100%; }
-.method-table th, .method-table td { text-align: left; vertical-align: top; padding: 8px 10px; white-space: normal; }
+table.data.method-table th, table.data.method-table td { text-align: left; vertical-align: top; padding: 8px 10px; white-space: normal; }
 .method-table th:nth-child(1) { width: 15%; }
 .method-table th:nth-child(2) { width: 9%; }
 .method-table th:nth-child(3) { width: 9%; }
