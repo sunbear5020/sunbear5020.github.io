@@ -408,7 +408,7 @@
       summary.push("안전 판정이 다릅니다 — " + labelA + " '" + statusKo(pa.status) + "', " + labelB + " '" + statusKo(pb.status) + "'.");
     }
     if (Math.abs(d.headroom_pct) >= 5) {
-      summary.push("상한 여유분은 " + labelB + "가 " + fmt(pb.headroom_pct, 1) + "%, " + labelA + "가 " + fmt(pa.headroom_pct, 1) +
+      summary.push("상한 여유분은 " + labelB + josa(labelB, "이", "가") + " " + fmt(pb.headroom_pct, 1) + "%, " + labelA + josa(labelA, "이", "가") + " " + fmt(pa.headroom_pct, 1) +
         "% — " + (d.headroom_pct < 0 ? labelB : labelA) + " 쪽이 상한에 더 가깝습니다 (" + fmt(Math.abs(d.headroom_pct), 1) + "%p 차이).");
     }
     var dom = "top", domv = 0;
@@ -1406,6 +1406,10 @@
       '<dl class="kv">' +
       "<dt>분자식</dt><dd class=\"mono\">" + esc(m.formula) + "</dd>" +
       "<dt>분자량</dt><dd class=\"mono\">" + fmt(m.molecular_weight) + " g/mol</dd>" +
+      "<dt>계산 LogP</dt><dd class=\"mono\">" + (m.logp == null ? "—" : fmt(m.logp, 2)) +
+      " <span style=\"color:var(--muted)\">유도(Crippen)</span></dd>" +
+      "<dt>TPSA</dt><dd class=\"mono\">" + (m.tpsa == null ? "—" : fmt(m.tpsa, 1)) +
+      " Å² <span style=\"color:var(--muted)\">유도(Ertl)</span></dd>" +
       "<dt>CAS</dt><dd class=\"mono\">" + esc(m.cas || "—") + "</dd>" +
       "<dt>작용기</dt><dd>" + esc(m.functional_group) + "</dd>" +
       "<dt>휘발성</dt><dd class=\"mono\">" + m.volatility.toFixed(2) + " (1=가장 빠름)</dd>" +
