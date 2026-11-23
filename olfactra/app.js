@@ -35,6 +35,7 @@
     tab: "id",
     id: { mood: null, season: null, space: null, style: null },
     studio: { product: "reed_diffuser", volume: 100, load: null, items: [], source: "" },
+    compare: { accord: null, product: null, volume: 50, load: null },
     atlas: { q: "", cat: null, selected: null },
     mol: { selected: "alpha-pinene", family: null, cell: null }
   };
@@ -270,13 +271,13 @@
   /* ---------------------------------------------------------------- studio */
   function densityOf(m) { return (m.state === "liquid") ? m.density_g_ml : 1.0; }
 
-  function formulate() {
-    var s = state.studio;
-    var pt = PRODUCT[s.product];
-    var vol = Number(s.volume) || 0;
-    var load = (s.load == null) ? pt.load_default : Number(s.load);
-    var norm = normalisedItems(s.items);
-    if (!pt || !norm.length || vol <= 0 || load <= 0) return null;
+  function buildFormula(product, volume, loadPct, items) {
+    var pt = PRODUCT[product];
+    if (!pt) return null;
+    var vol = Number(volume) || 0;
+    var load = (loadPct == null) ? pt.load_default : Number(loadPct);
+    var norm = normalisedItems(items);
+    if (!norm.length || vol <= 0 || load <= 0) return null;
 
     var fragVol = vol * load / 100;
     var baseVol = vol - fragVol;
@@ -339,8 +340,135 @@
       pt: pt, vol: vol, load: load, rows: rows, carriers: carriers,
       total: total, fragMass: fragMass, fragVol: fragVol, finishedLoad: finishedLoad,
       status: (worstOver || load > pt.load_max) ? "over" : (anyCaution ? "caution" : "ok"),
-      warnings: warnings, allergens: allergens, balance: noteBalance(s.items)
+      warnings: warnings, allergens: allergens, balance: noteBalance(items),
+      label: pt.name_ko + " " + fmt(vol) + " mL"
     };
+  }
+
+  function formulate() {
+    var s = state.studio;
+    return buildFormula(s.product, s.volume, s.load, s.items);
+  }
+
+  /* ------------------------------------------------ property profile (v0.2) */
+  // Mirrors olfactra_core.compare.property_profile: mass-weighted means over the
+  // concentrate. LogP and TPSA are *derived* descriptors (Crippen / Ertl), not
+  // measurements — the METHOD tab says so in words.
+  function propProfile(f) {
+    var wsum = 0, mw = 0, logp = 0, tpsa = 0, solid = 0;
+    var minMw = Infinity, maxMw = 0, minLp = Infinity, maxLp = -Infinity, maxTpsa = 0;
+    var maxRatio = 0, over = [], caution = [];
+    f.rows.forEach(function (r) {
+      var w = r.neatMass;
+      var lp = (r.m.logp == null ? 0 : r.m.logp), tp = (r.m.tpsa == null ? 0 : r.m.tpsa);
+      wsum += w;
+      mw += r.m.molecular_weight * w; logp += lp * w; tpsa += tp * w;
+      minMw = Math.min(minMw, r.m.molecular_weight); maxMw = Math.max(maxMw, r.m.molecular_weight);
+      minLp = Math.min(minLp, lp); maxLp = Math.max(maxLp, lp); maxTpsa = Math.max(maxTpsa, tp);
+      if (r.m.state !== "liquid") solid += r.share;
+      maxRatio = Math.max(maxRatio, r.ratio);
+      if (r.status === "over") over.push(r.m.name_ko);
+      if (r.status === "caution") caution.push(r.m.name_ko);
+    });
+    var mean = function (v) { return wsum ? v / wsum : 0; };
+    return {
+      materials: f.rows.length,
+      mean_mw: rounded(mean(mw)), min_mw: rounded(minMw === Infinity ? 0 : minMw), max_mw: rounded(maxMw),
+      mean_logp: Math.round(mean(logp) * 100) / 100,
+      min_logp: Math.round((minLp === Infinity ? 0 : minLp) * 100) / 100,
+      max_logp: Math.round((maxLp === -Infinity ? 0 : maxLp) * 100) / 100,
+      mean_tpsa: Math.round(mean(tpsa) * 100) / 100, max_tpsa: maxTpsa,
+      solid_share_pct: rounded(solid),
+      note_share_pct: {
+        top: rounded((f.balance.top || 0) * 100), middle: rounded((f.balance.middle || 0) * 100),
+        base: rounded((f.balance.base || 0) * 100)
+      },
+      fragrance_mass_g: f.fragMass, total_mass_g: f.total,
+      finished_load_pct_ww: f.finishedLoad,
+      max_cap_ratio: Math.round(maxRatio * 1000) / 1000,
+      headroom_pct: Math.round(Math.max(0, 1 - maxRatio) * 1000) / 10,
+      status: f.status, over: over, caution: caution, allergens: f.allergens.slice()
+    };
+  }
+
+  function statusKo(s) { return s === "ok" ? "적합" : (s === "caution" ? "주의" : "상한 초과"); }
+
+  function compareFormulas(fa, fb, labelA, labelB) {
+    var pa = propProfile(fa), pb = propProfile(fb);
+    var d = {
+      mean_mw: rounded(pb.mean_mw - pa.mean_mw),
+      mean_logp: Math.round((pb.mean_logp - pa.mean_logp) * 100) / 100,
+      mean_tpsa: Math.round((pb.mean_tpsa - pa.mean_tpsa) * 100) / 100,
+      finished_load_pct_ww: Math.round((pb.finished_load_pct_ww - pa.finished_load_pct_ww) * 100) / 100,
+      headroom_pct: Math.round((pb.headroom_pct - pa.headroom_pct) * 10) / 10,
+      max_cap_ratio: Math.round((pb.max_cap_ratio - pa.max_cap_ratio) * 1000) / 1000
+    };
+    var summary = [];
+    if (pa.status !== pb.status) {
+      summary.push("안전 판정이 다릅니다 — " + labelA + " '" + statusKo(pa.status) + "', " + labelB + " '" + statusKo(pb.status) + "'.");
+    }
+    if (Math.abs(d.headroom_pct) >= 5) {
+      summary.push("상한 여유분은 " + labelB + "가 " + fmt(pb.headroom_pct, 1) + "%, " + labelA + "가 " + fmt(pa.headroom_pct, 1) +
+        "% — " + (d.headroom_pct < 0 ? labelB : labelA) + " 쪽이 상한에 더 가깝습니다 (" + fmt(Math.abs(d.headroom_pct), 1) + "%p 차이).");
+    }
+    var dom = "top", domv = 0;
+    NOTES.forEach(function (n) {
+      var v = pb.note_share_pct[n.id] - pa.note_share_pct[n.id];
+      if (Math.abs(v) > Math.abs(domv)) { dom = n.id; domv = v; }
+    });
+    if (Math.abs(domv) >= 3) {
+      summary.push(NOTE_LABEL[dom] + " 노트가 " + (domv > 0 ? "+" : "") + fmt(domv, 1) + "%p (" +
+        labelA + " " + fmt(pa.note_share_pct[dom], 0) + "% → " + labelB + " " + fmt(pb.note_share_pct[dom], 0) + "%).");
+    }
+    if (Math.abs(d.mean_mw) >= 5) {
+      summary.push("평균 분자량은 " + fmt(pa.mean_mw, 1) + " → " + fmt(pb.mean_mw, 1) + " g/mol (" +
+        (d.mean_mw > 0 ? "+" : "") + fmt(d.mean_mw, 1) + ") — " + (d.mean_mw > 0 ? "무거운" : "가벼운") + " 쪽으로 이동.");
+    }
+    if (Math.abs(d.mean_logp) >= 0.2) {
+      summary.push("평균 계산 LogP " + fmt(pa.mean_logp, 2) + " → " + fmt(pb.mean_logp, 2) + " (" +
+        (d.mean_logp > 0 ? "+" : "") + fmt(d.mean_logp, 2) + ") — " + (d.mean_logp > 0 ? "더 소수성" : "더 극성") + "인 조성.");
+    }
+    if (Math.abs(d.mean_tpsa) >= 1.0) {
+      summary.push("평균 TPSA " + fmt(pa.mean_tpsa, 1) + " → " + fmt(pb.mean_tpsa, 1) + " Å² (" +
+        (d.mean_tpsa > 0 ? "+" : "") + fmt(d.mean_tpsa, 1) + ").");
+    }
+    var added = pb.allergens.filter(function (x) { return pa.allergens.indexOf(x) < 0; });
+    var removed = pa.allergens.filter(function (x) { return pb.allergens.indexOf(x) < 0; });
+    if (added.length || removed.length) {
+      var bits = [];
+      if (added.length) bits.push(labelB + "에 새로 표시 대상: " + added.join(", "));
+      if (removed.length) bits.push(labelA + "에만 있던 표시 대상: " + removed.join(", "));
+      summary.push("알레르겐 표시 — " + bits.join("; ") + ".");
+    }
+    if (!summary.length) summary.push("두 배합의 노트 구조·물성·안전 여유분이 거의 같습니다.");
+    return { a: { label: labelA, formula: fa, profile: pa }, b: { label: labelB, formula: fb, profile: pb }, deltas: d, summary: summary };
+  }
+
+  function compareTableHtml(cmp) {
+    var rows = [];
+    function add(label, a, b, delta, evidence) {
+      rows.push("<tr><td>" + esc(label) + '</td><td class="num">' + a + '</td><td class="num">' + b +
+        '</td><td class="num">' + (delta || "") + "</td><td>" + esc(evidence || "") + "</td></tr>");
+    }
+    var pa = cmp.a.profile, pb = cmp.b.profile, d = cmp.deltas;
+    NOTES.forEach(function (n) {
+      var dv = rounded(pb.note_share_pct[n.id] - pa.note_share_pct[n.id]);
+      add(n.label + " 노트 %", fmt(pa.note_share_pct[n.id], 1), fmt(pb.note_share_pct[n.id], 1),
+        (dv > 0 ? "+" : "") + fmt(dv, 1), "휴리스틱");
+    });
+    add("원료 수", pa.materials, pb.materials, "", "—");
+    add("평균 분자량 (g/mol)", fmt(pa.mean_mw, 2), fmt(pb.mean_mw, 2), (d.mean_mw > 0 ? "+" : "") + fmt(d.mean_mw, 2), "측정(PubChem)");
+    add("평균 LogP", fmt(pa.mean_logp, 2), fmt(pb.mean_logp, 2), (d.mean_logp > 0 ? "+" : "") + fmt(d.mean_logp, 2), "유도(Crippen)");
+    add("평균 TPSA (Å²)", fmt(pa.mean_tpsa, 1), fmt(pb.mean_tpsa, 1), (d.mean_tpsa > 0 ? "+" : "") + fmt(d.mean_tpsa, 1), "유도(Ertl)");
+    add("완성품 부향률 (% w/w)", fmt(pa.finished_load_pct_ww, 2), fmt(pb.finished_load_pct_ww, 2),
+      (d.finished_load_pct_ww > 0 ? "+" : "") + fmt(d.finished_load_pct_ww, 2), "유도(계량)");
+    add("최대 상한 사용률", pct(pa.max_cap_ratio * 100), pct(pb.max_cap_ratio * 100),
+      (d.max_cap_ratio > 0 ? "+" : "") + fmt(d.max_cap_ratio * 100, 0) + "%p", "휴리스틱");
+    add("남은 여유분", fmt(pa.headroom_pct, 1) + "%", fmt(pb.headroom_pct, 1) + "%",
+      (d.headroom_pct > 0 ? "+" : "") + fmt(d.headroom_pct, 1) + "%p", "휴리스틱");
+    add("판정", statusKo(pa.status), statusKo(pb.status), "", "휴리스틱");
+    add("표시 대상 알레르겐", pa.allergens.join(", ") || "—", pb.allergens.join(", ") || "—", "", "측정(EU 목록)");
+    return rows.join("");
   }
 
   /* --------------------------------------------------------------- labels */
@@ -358,12 +486,13 @@
       b.classList.toggle("is-active", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
-    ["id", "studio", "atlas", "molecule"].forEach(function (t) {
+    ["id", "studio", "atlas", "molecule", "method"].forEach(function (t) {
       var panel = byId("panel-" + t);
       if (panel) panel.hidden = (t !== tab);
     });
     if (tab === "molecule") { requestAnimationFrame(drawMoleculeViews); }
     if (tab === "atlas") { requestAnimationFrame(function () { if (state.atlas.selected) scrollToDetail(); }); }
+    if (tab === "studio") { requestAnimationFrame(renderCompare); }
     if (push !== false) {
       try { history.replaceState(null, "", "#" + tab); } catch (e) { /* file:// */ }
     }
@@ -699,6 +828,21 @@
       (f.allergens.length ? '<p style="margin-bottom:8px">라벨 표시 대상 알레르겐(EU 기준 0.001% 이상): <b>' +
         esc(f.allergens.join(", ")) + "</b></p>" : "") +
       "<ul>" + f.warnings.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul>";
+
+    var p = propProfile(f);
+    var propHost = byId("studio-properties");
+    if (propHost) {
+      propHost.innerHTML = [
+        ["평균 분자량", fmt(p.mean_mw, 1), "g/mol"],
+        ["평균 LogP", fmt(p.mean_logp, 2), "계산"],
+        ["평균 TPSA", fmt(p.mean_tpsa, 1), "Å²"],
+        ["상한 여유분", fmt(p.headroom_pct, 1), "%"]
+      ].map(function (row) {
+        return '<div class="stat prop"><div class="k">' + esc(row[0]) + '</div><div class="v">' +
+          esc(row[1]) + '<span class="u">' + esc(row[2]) + "</span></div></div>";
+      }).join("");
+    }
+    renderCompare();
   }
 
   function recipeRows(f) {
@@ -737,10 +881,26 @@
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
+  // numeric material rows — the shape olfactra_core.exporter.formula_to_dict writes
+  function materialDicts(f) {
+    return f.rows.map(function (r) {
+      return {
+        id: r.m.id, name: r.m.name, name_ko: r.m.name_ko, note: r.m.note,
+        share_pct: Number(fmt(r.share, 2)), volume_ml: Number(fmt(r.neatVol, 3)),
+        mass_g: Number(fmt(r.neatMass, 3)), finished_pct_ww: Number(fmt(r.finished, 4)),
+        cap_pct: Number(fmt(r.cap, 3)), cap_base_pct: r.capBase,
+        cap_ratio: Number(fmt(r.ratio, 3)), status: r.status,
+        is_solid: r.m.state !== "liquid",
+        allergen: D.allergens.indexOf(r.m.id) >= 0
+      };
+    });
+  }
+
   function studioJson(f) {
-    return JSON.stringify({
+    var bundle = {
+      schema_version: "0.2.0",
       meta: {
-        project: "OLFACTRA", version: D.meta.version, license: "MIT",
+        project: "OLFACTRA", version: D.meta.version, schema_version: "0.2.0", license: "MIT",
         copyright: D.meta.copyright, generated: new Date().toISOString().slice(0, 10),
         science_boundary: D.meta.science_boundary, safety_boundary: D.meta.safety_boundary
       },
@@ -750,14 +910,161 @@
         fragrance_mass_g: Number(fmt(f.fragMass, 3)), fragrance_volume_ml: Number(fmt(f.fragVol, 3)),
         finished_load_pct_ww: Number(fmt(f.finishedLoad, 3)), status: f.status
       },
-      materials: recipeRows(f),
+      materials: materialDicts(f),
       carriers: f.carriers.map(function (c) {
         return { name: c.c.name, role: c.c.role, ratio: c.c.ratio, volume_ml: Number(fmt(c.vol, 3)), mass_g: Number(fmt(c.mass, 3)) };
       }),
-      note_balance: f.balance,
+      note_balance: {
+        top: rounded(f.balance.top || 0), middle: rounded(f.balance.middle || 0), base: rounded(f.balance.base || 0)
+      },
+      property_profile: propProfile(f),
       allergens: f.allergens,
       warnings: f.warnings
-    }, null, 2);
+    };
+    if (D.provenance) bundle.methodology = D.provenance;
+    return JSON.stringify(bundle, null, 2);
+  }
+
+  /* ------------------------------------------------- Markdown research report */
+  var PROV_TABLE_ROWS = [
+    ["pubchem_record", "측정"], ["dilution_arithmetic", "유도"], ["safety_gate", "휴리스틱"],
+    ["note_pyramid", "휴리스틱"], ["logp_crippen", "유도"], ["tpsa_ertl", "유도"],
+    ["odour_family_vector", "휴리스틱"], ["blend_harmony", "휴리스틱"]
+  ];
+
+  function provOf(id) {
+    var list = (D.provenance && D.provenance.indicators) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  function provTableMarkdown(ids) {
+    var lines = ["| 지표 | 근거 등급 | 수식·방법 | 경계 |", "| --- | --- | --- | --- |"];
+    ids.forEach(function (id) {
+      var ind = provOf(id); if (!ind) return;
+      lines.push("| **" + ind.label_ko + "** (" + ind.unit + ") | " + ind.kind_label + " | " +
+        String(ind.formula).replace(/\|/g, "\\|") + " | " + String(ind.boundary_ko).replace(/\|/g, "\\|") + " |");
+    });
+    return lines.join("\n");
+  }
+
+  function provRefsMarkdown() {
+    var refs = (D.provenance && D.provenance.references) || [];
+    return refs.map(function (r) {
+      return "- **" + r.label + "** — " + r.detail + (r.link ? " <" + r.link + ">" : "");
+    }).join("\n");
+  }
+
+  function boundary(name) {
+    return (D.provenance && D.provenance.boundaries && D.provenance.boundaries[name]) || "";
+  }
+
+  function studioMarkdown(f) {
+    var p = propProfile(f);
+    var out = [];
+    out.push("# OLFACTRA 배합 보고서 — " + f.pt.name_ko, "");
+    out.push("- 버전: **OLFACTRA " + D.meta.version + "** · JSON schema `0.2.0` · MIT License");
+    out.push("- 생성일: " + new Date().toISOString().slice(0, 10));
+    out.push("- 제형: **" + f.pt.name_ko + "** (" + f.pt.id + ") · " + fmt(f.vol) + " mL · 부향률 " +
+      fmt(f.load) + "% (완성품 " + fmt(f.finishedLoad, 2) + "% w/w)");
+    out.push("- 총 무게 " + fmt(f.total, 2) + " g (향 농축액 " + fmt(f.fragMass, 2) + " g)");
+    out.push("- 안전 판정: **" + statusKo(f.status) + "**", "");
+    out.push("> 이 보고서는 **후보 배합**을 계산한 것입니다. 완성된 혼합물의 냄새를 예측하지 않으며, " +
+      "관능평가·GC-MS 분석·안전성 평가를 대체하지 않습니다.", "");
+    out.push("## 1. 계량표", "");
+    out.push("| No | 원료 | CAS | 노트 | 비중 (%) | mL | g | 완성품 (% w/w) | 적용 상한 (%) | 판정 |");
+    out.push("| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |");
+    f.rows.forEach(function (r, i) {
+      out.push("| " + (i + 1) + " | " + r.m.name_ko + " (" + r.m.name + ") | " + (r.m.cas || "—") + " | " +
+        NOTE_LABEL[r.m.note] + " | " + fmt(r.share, 1) + " | " + fmt(r.neatVol, 3) + " | " +
+        fmt(r.neatMass, 3) + " | " + fmt(r.finished, 4) + " | " + fmt(r.capBase) +
+        (f.pt.cap_scale !== 1 ? " ×" + fmt(f.pt.cap_scale) : "") + " | " +
+        (r.status === "ok" ? "적합" : (r.status === "caution" ? "주의" : "초과")) + " |");
+    });
+    out.push("", "### 캐리어", "", "| 캐리어 | 역할 | 비율 (%) | mL | g |", "| --- | --- | ---: | ---: | ---: |");
+    f.carriers.forEach(function (c) {
+      out.push("| " + c.c.name + " | " + (c.c.role || "") + " | " + fmt(c.c.ratio * 100, 1) + " | " +
+        fmt(c.vol, 3) + " | " + fmt(c.mass, 3) + " |");
+    });
+    out.push("", "## 2. 노트 피라미드", "", "| 노트 | 비중 (%) |", "| --- | ---: |");
+    NOTES.forEach(function (n) { out.push("| " + n.label + " | " + fmt(p.note_share_pct[n.id], 1) + " |"); });
+    out.push("", "## 3. 물성 프로파일 (질량 가중 평균, 유도 지표)", "",
+      "| 지표 | 값 | 근거 등급 |", "| --- | ---: | --- |",
+      "| 원료 수 | " + p.materials + " | — |",
+      "| 평균 분자량 (g/mol) | " + fmt(p.mean_mw, 2) + " | 측정(PubChem) |",
+      "| 분자량 범위 (g/mol) | " + fmt(p.min_mw, 2) + "–" + fmt(p.max_mw, 2) + " | 측정(PubChem) |",
+      "| 평균 계산 LogP | " + fmt(p.mean_logp, 2) + " | 유도(Crippen) |",
+      "| LogP 범위 | " + fmt(p.min_logp, 2) + "–" + fmt(p.max_logp, 2) + " | 유도(Crippen) |",
+      "| 평균 TPSA (Å²) | " + fmt(p.mean_tpsa, 2) + " | 유도(Ertl) |",
+      "| 고체 원료 비중 (%) | " + fmt(p.solid_share_pct, 1) + " | — |", "",
+      "LogP와 TPSA는 공개 SMILES에서 계산한 **추정치**이며 실측값이 아닙니다. " +
+      "휘발성·발향 지속시간의 대리값으로 쓰지 마세요(METHOD 탭의 지표 경계 참고).", "");
+    out.push("## 4. 안전 판정", "",
+      "- 판정: **" + statusKo(f.status) + "**",
+      "- 최대 상한 사용률: " + Math.round(p.max_cap_ratio * 100) + "% · 남은 여유분 " + fmt(p.headroom_pct, 1) + "%",
+      "- 표시 대상 알레르겐(EU 0.001% 이상): " + (f.allergens.join(", ") || "없음"), "");
+    if (f.warnings.length) {
+      out.push("### 주의 사항", "");
+      f.warnings.forEach(function (w) { out.push("- " + w); });
+      out.push("");
+    } else { out.push("주의 사항이 없습니다.", ""); }
+    out.push("## 5. 방법론·출처·경계", "",
+      "근거 등급: **측정** = 공개 데이터셋·레코드의 실측값, **유도·계산** = 공개 입력에서 정해진 방법으로 계산한 값, " +
+      "**휴리스틱** = 측정 대상이 없는 규칙 기반 지표.", "",
+      provTableMarkdown(PROV_TABLE_ROWS.map(function (x) { return x[0]; })), "");
+    if (boundary("science")) out.push("> **과학적 경계** — " + boundary("science"), "");
+    if (boundary("safety")) out.push("> **안전 경계** — " + boundary("safety"), "");
+    if (boundary("model")) out.push("> **모델 경계** — " + boundary("model"), "");
+    out.push("### 참고문헌", "", provRefsMarkdown(), "");
+    out.push("## 6. 재현", "", "```bash",
+      "python -m olfactra_core formulate --product " + f.pt.id + " --volume " + fmt(f.vol) +
+      " --load " + fmt(f.load) + " --accord \"" +
+      f.rows.map(function (r) { return r.m.id + "=" + fmt(r.share, 2); }).join(",") + "\" --out report.md",
+      "```", "", "---", "",
+      "경상국립대학교 환경산림과학부 산림환경자원학과 **FEI · HEL 인간환경연구실** · " +
+      "`Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University` · MIT License");
+    return out.join("\n") + "\n";
+  }
+
+  function compareMarkdown(cmp) {
+    var pa = cmp.a.profile, pb = cmp.b.profile, d = cmp.deltas;
+    var out = [];
+    out.push("# OLFACTRA — 배합 비교 보고서", "",
+      "- 버전: **" + D.meta.version + "** · schema 0.2.0 · MIT",
+      "- A: **" + cmp.a.label + "** — " + cmp.a.formula.pt.name_ko + " " + fmt(cmp.a.formula.vol) + " mL, 부향률 " + fmt(cmp.a.formula.load) + "%",
+      "- B: **" + cmp.b.label + "** — " + cmp.b.formula.pt.name_ko + " " + fmt(cmp.b.formula.vol) + " mL, 부향률 " + fmt(cmp.b.formula.load) + "%",
+      "", "## 1. 요약", "");
+    cmp.summary.forEach(function (line) { out.push("- " + line); });
+    out.push("", "## 2. 노트 피라미드", "", "| 노트 | A (%) | B (%) | 차이 (%p) |", "| --- | ---: | ---: | ---: |");
+    NOTES.forEach(function (n) {
+      out.push("| " + n.label + " | " + fmt(pa.note_share_pct[n.id], 1) + " | " + fmt(pb.note_share_pct[n.id], 1) +
+        " | " + (pb.note_share_pct[n.id] - pa.note_share_pct[n.id] > 0 ? "+" : "") +
+        fmt(pb.note_share_pct[n.id] - pa.note_share_pct[n.id], 1) + " |");
+    });
+    out.push("", "## 3. 물성 프로파일 (질량 가중 평균)", "",
+      "| 지표 | A | B | 차이 | 근거 등급 |", "| --- | ---: | ---: | ---: | --- |",
+      "| 평균 분자량 (g/mol) | " + fmt(pa.mean_mw, 2) + " | " + fmt(pb.mean_mw, 2) + " | " + fmt(d.mean_mw, 2) + " | 측정(PubChem) |",
+      "| 평균 LogP | " + fmt(pa.mean_logp, 2) + " | " + fmt(pb.mean_logp, 2) + " | " + fmt(d.mean_logp, 2) + " | 유도(Crippen) |",
+      "| 평균 TPSA (Å²) | " + fmt(pa.mean_tpsa, 1) + " | " + fmt(pb.mean_tpsa, 1) + " | " + fmt(d.mean_tpsa, 1) + " | 유도(Ertl) |",
+      "| 완성품 부향률 (% w/w) | " + fmt(pa.finished_load_pct_ww, 2) + " | " + fmt(pb.finished_load_pct_ww, 2) + " | " +
+      fmt(d.finished_load_pct_ww, 2) + " | 유도(계량) |",
+      "", "## 4. 안전 여유분", "", "| 항목 | A | B | 차이 |", "| --- | ---: | ---: | ---: |",
+      "| 판정 | " + statusKo(pa.status) + " | " + statusKo(pb.status) + " | |",
+      "| 최대 상한 사용률 | " + Math.round(pa.max_cap_ratio * 100) + "% | " + Math.round(pb.max_cap_ratio * 100) + "% | " +
+      fmt(d.max_cap_ratio * 100, 0) + "%p |",
+      "| 남은 여유분 | " + fmt(pa.headroom_pct, 1) + "% | " + fmt(pb.headroom_pct, 1) + "% | " + fmt(d.headroom_pct, 1) + "%p |",
+      "| 초과 원료 | " + (pa.over.join(", ") || "—") + " | " + (pb.over.join(", ") || "—") + " | |",
+      "| 주의 원료 | " + (pa.caution.join(", ") || "—") + " | " + (pb.caution.join(", ") || "—") + " | |",
+      "| 표시 대상 알레르겐 | " + (pa.allergens.join(", ") || "—") + " | " + (pb.allergens.join(", ") || "—") + " | |",
+      "", "## 5. 방법론·출처·경계", "",
+      "이 보고서의 수치는 다음 지표들로 만들어졌습니다. 근거 등급이 '휴리스틱'인 값은 측정값이 아니라 순위·비교를 돕는 규칙입니다.", "",
+      provTableMarkdown(["pubchem_record", "logp_crippen", "tpsa_ertl", "dilution_arithmetic",
+        "safety_gate", "note_pyramid", "blend_harmony", "volatility_index"]), "");
+    if (boundary("science")) out.push("> **과학적 경계** — " + boundary("science"), "");
+    if (boundary("safety")) out.push("> **안전 경계** — " + boundary("safety"), "");
+    out.push("### 참고문헌", "", provRefsMarkdown(), "", "---", "",
+      "경상국립대학교 환경산림과학부 산림환경자원학과 **FEI · HEL 인간환경연구실** · MIT License");
+    return out.join("\n") + "\n";
   }
 
   function copyRecipe(f) {
@@ -772,6 +1079,60 @@
     } else {
       download("olfactra-recipe.txt", text);
     }
+  }
+
+  function renderCompareControls() {
+    var accSel = byId("compare-accord");
+    var prodSel = byId("compare-product");
+    if (!accSel || !prodSel) return;
+    accSel.innerHTML = D.accords.map(function (a) {
+      return '<option value="' + esc(a.id) + '">' + esc(a.name_ko) + " · " + esc(a.name_en) + "</option>";
+    }).join("");
+    prodSel.innerHTML = D.products.map(function (p) {
+      return '<option value="' + esc(p.id) + '">' + esc(p.name_ko) + "</option>";
+    }).join("");
+    if (!ACCORD[state.compare.accord]) {
+      state.compare.accord = (D.accords[1] || D.accords[0]).id;
+    }
+    var acc = ACCORD[state.compare.accord];
+    state.compare.product = state.compare.product && PRODUCT[state.compare.product]
+      ? state.compare.product : acc.product_hint;
+    accSel.value = state.compare.accord;
+    prodSel.value = state.compare.product;
+
+    var volEl = byId("compare-volume");
+    volEl.value = state.compare.volume;
+    byId("compare-volume-out").textContent = fmt(state.compare.volume);
+    var pt = PRODUCT[state.compare.product];
+    var load = (state.compare.load == null) ? pt.load_default : state.compare.load;
+    var loadEl = byId("compare-load");
+    loadEl.value = load;
+    byId("compare-load-out").textContent = fmt(load);
+
+    on(accSel, "change", function (e) {
+      state.compare.accord = e.target.value;
+      var a = ACCORD[state.compare.accord];
+      state.compare.product = a.product_hint;
+      state.compare.load = null;
+      renderCompareControls();
+      renderCompare();
+    });
+    on(prodSel, "change", function (e) {
+      state.compare.product = e.target.value;
+      state.compare.load = null;
+      renderCompareControls();
+      renderCompare();
+    });
+    on(volEl, "input", function (e) {
+      state.compare.volume = Number(e.target.value);
+      byId("compare-volume-out").textContent = fmt(state.compare.volume);
+      renderCompare();
+    });
+    on(loadEl, "input", function (e) {
+      state.compare.load = Number(e.target.value);
+      byId("compare-load-out").textContent = fmt(state.compare.load);
+      renderCompare();
+    });
   }
 
   function renderStudio() {
@@ -789,6 +1150,124 @@
     renderStudioItems();
     renderStudioAddOptions();
     renderStudioResults();
+  }
+
+  /* =========================================================== COMPARE (v0.2) */
+  function compareFormulaB() {
+    var s = state.compare;
+    var acc = ACCORD[s.accord] || D.accords[1] || D.accords[0];
+    var product = s.product || acc.product_hint;
+    return {
+      accord: acc,
+      formula: buildFormula(product, s.volume, s.load, accordItems(acc))
+    };
+  }
+
+  function renderCompare() {
+    var tbody = $("#compare-table tbody");
+    if (!tbody) return;
+    var a = formulate();
+    if (!a) {
+      tbody.innerHTML = '<tr><td colspan="5" class="placeholder">배합 A를 먼저 만들어 주세요.</td></tr>';
+      byId("compare-summary").innerHTML = "";
+      byId("compare-notes").innerHTML = "";
+      state.compare.last = null;
+      return;
+    }
+    var bSide = compareFormulaB();
+    var b = bSide.formula;
+    if (!b) { tbody.innerHTML = '<tr><td colspan="5" class="placeholder">비교 배합 B를 만들 수 없습니다.</td></tr>'; return; }
+    var labelA = "A · " + (state.studio.source || a.pt.name_ko);
+    var labelB = "B · " + bSide.accord.name_ko;
+    var cmp = compareFormulas(a, b, labelA, labelB);
+    state.compare.last = cmp;
+
+    tbody.innerHTML = compareTableHtml(cmp);
+    byId("compare-summary").innerHTML = cmp.summary.map(function (line) {
+      return '<p class="cmp-line">' + esc(line) + "</p>";
+    }).join("");
+    byId("compare-notes").innerHTML =
+      '<div class="cmp-head">' + esc(labelA) + " · " + esc(a.pt.name_ko) + " " + fmt(a.vol) + " mL, 부향률 " + fmt(a.load) + "%</div>" +
+      notePyramidHtml(a.balance) +
+      '<div class="cmp-head">' + esc(labelB) + " · " + esc(b.pt.name_ko) + " " + fmt(b.vol) + " mL, 부향률 " + fmt(b.load) + "%</div>" +
+      notePyramidHtml(b.balance);
+    var bd = byId("compare-boundary");
+    if (bd) {
+      bd.innerHTML = "물성 평균은 향 농축액의 질량 가중 평균입니다. LogP·TPSA는 구조에서 계산한 추정치이고, " +
+        "노트 비중·안전 여유분은 각 지표의 경계를 그대로 물려받습니다 — <b>METHOD</b> 탭에서 근거 등급과 출처를 확인하세요.";
+    }
+  }
+
+  function downloadCompare(kind) {
+    var cmp = state.compare.last;
+    if (!cmp) return;
+    var base = "olfactra-compare-" + cmp.a.formula.pt.id + "-vs-" + cmp.b.formula.pt.id;
+    if (kind === "md") {
+      download(base + ".md", compareMarkdown(cmp), "text/markdown;charset=utf-8");
+    } else {
+      download(base + ".json", JSON.stringify({
+        schema_version: "0.2.0",
+        labels: { a: cmp.a.label, b: cmp.b.label },
+        a: { product_type: cmp.a.formula.pt.id, volume_ml: cmp.a.formula.vol, load_pct: cmp.a.formula.load,
+             status: cmp.a.formula.status, profile: cmp.a.profile },
+        b: { product_type: cmp.b.formula.pt.id, volume_ml: cmp.b.formula.vol, load_pct: cmp.b.formula.load,
+             status: cmp.b.formula.status, profile: cmp.b.profile },
+        deltas: cmp.deltas, summary: cmp.summary
+      }, null, 2), "application/json");
+    }
+  }
+
+  /* ============================================================ METHOD (v0.2) */
+  function kindChip(kind) {
+    var labels = { measured: "측정", derived: "유도·계산", heuristic: "휴리스틱" };
+    return '<span class="kind-chip ' + esc(kind) + '">' + esc(labels[kind] || kind) + "</span>";
+  }
+
+  function renderMethod() {
+    var prov = D.provenance;
+    if (!prov) return;
+    var host = byId("method-kinds");
+    if (host) {
+      host.innerHTML = prov.kinds.map(function (k) {
+        return '<div class="kind-card ' + esc(k.id) + '">' + kindChip(k.id) +
+          '<b>' + esc(String(prov.counts[k.id] || 0)) + "개 지표</b>" +
+          '<p>' + esc(k.description_ko) + "</p></div>";
+      }).join("");
+    }
+    var list = byId("method-list");
+    if (list) {
+      list.innerHTML = prov.indicators.map(function (ind, i) {
+        var refs = (ind.references || []).map(function (r) {
+          return r.link ? '<a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + esc(r.label) + "</a>" : esc(r.label);
+        }).join(" · ");
+        return '<details class="method-item ' + esc(ind.kind) + '"' + (i < 2 ? " open" : "") + ">" +
+          "<summary>" + kindChip(ind.kind) + "<b>" + esc(ind.label_ko) + "</b>" +
+          '<span class="mi-en">' + esc(ind.label_en) + "</span>" +
+          '<span class="mi-unit mono">' + esc(ind.unit) + "</span></summary>" +
+          '<div class="mi-body">' +
+          '<p class="mi-formula mono">' + esc(ind.formula) + "</p>" +
+          '<p><span class="mi-k">근거</span>' + esc(ind.basis_ko) + "</p>" +
+          '<p class="mi-boundary"><span class="mi-k">경계</span>' + esc(ind.boundary_ko) + "</p>" +
+          (ind.inputs && ind.inputs.length ? '<p class="mi-used"><span class="mi-k">입력</span>' + esc(ind.inputs.join(" · ")) + "</p>" : "") +
+          (ind.used_in && ind.used_in.length ? '<p class="mi-used"><span class="mi-k">쓰이는 곳</span>' + esc(ind.used_in.join(" · ")) + "</p>" : "") +
+          (refs ? '<p class="mi-refs"><span class="mi-k">참고</span>' + refs + "</p>" : "") +
+          "</div></details>";
+      }).join("");
+    }
+    var bounds = byId("method-boundaries");
+    if (bounds) {
+      var names = [["science", "과학"], ["safety", "안전"], ["model", "모델"], ["clean_room", "클린룸"]];
+      bounds.innerHTML = names.filter(function (n) { return prov.boundaries[n[0]]; }).map(function (n) {
+        return '<div class="bound-item"><b>' + esc(n[1]) + " 경계</b><p>" + esc(prov.boundaries[n[0]]) + "</p></div>";
+      }).join("");
+    }
+    var refsHost = byId("method-refs");
+    if (refsHost) {
+      refsHost.innerHTML = (prov.references || []).map(function (r) {
+        return '<div class="ref-item"><b>' + esc(r.label) + "</b><p>" + esc(r.detail) + "</p>" +
+          (r.link ? '<a href="' + esc(r.link) + '" target="_blank" rel="noopener" class="mono">' + esc(r.link) + "</a>" : "") + "</div>";
+      }).join("");
+    }
   }
 
   /* ============================================================= ATLAS tab */
@@ -1191,6 +1670,7 @@
       var k = el.getAttribute("data-count");
       if (k === "molecules") el.textContent = D.meta.stats.molecules.molecules;
       if (k === "atlas") el.textContent = D.meta.stats.atlas.entries;
+      if (k === "indicators") el.textContent = (D.provenance && D.provenance.indicators) ? D.provenance.indicators.length : 0;
     });
 
     if (!restoreStudio()) {
@@ -1251,6 +1731,12 @@
       state.studio.items = []; state.studio.source = "";
       renderStudioItems(); renderStudioAddOptions(); renderStudioResults(); saveStudio();
     });
+    on(byId("studio-md"), "click", function () {
+      var f = formulate(); if (!f) return;
+      download("olfactra-report-" + f.pt.id + "-" + fmt(f.vol) + "ml.md", studioMarkdown(f), "text/markdown;charset=utf-8");
+    });
+    on(byId("compare-md"), "click", function () { downloadCompare("md"); });
+    on(byId("compare-json"), "click", function () { downloadCompare("json"); });
     on(byId("studio-csv"), "click", function () {
       var f = formulate(); if (!f) return;
       download("olfactra-recipe-" + f.pt.id + "-" + fmt(f.vol) + "ml.csv", studioCsv(f), "text/csv;charset=utf-8");
@@ -1268,9 +1754,11 @@
       renderAtlasGrid(); renderAtlasTimeline();
     });
 
+    renderCompareControls();
     renderIdControls();
     renderIdResults();
     renderStudio();
+    renderMethod();
     renderAtlasCats();
     renderAtlasGrid();
     renderAtlasTimeline();
@@ -1291,7 +1779,7 @@
     }
 
     var hash = (location.hash || "").replace("#", "");
-    setTab(["id", "studio", "atlas", "molecule"].indexOf(hash) >= 0 ? hash : "id", false);
+    setTab(["id", "studio", "atlas", "molecule", "method"].indexOf(hash) >= 0 ? hash : "id", false);
 
     var resizeTimer = null;
     window.addEventListener("resize", function () {

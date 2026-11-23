@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OLFACTRA — The Intelligence of Scent · FEI · HEL Lab</title>
-<meta name="description" content="OLFACTRA는 공개 분자·향조 데이터로 향 프로필을 추천하고(OLFACTRA ID), DIY 배합비와 안전 상한을 계산하며(STUDIO), 고대부터 이어진 향의 기원(ATLAS)과 향료 분자(MOLECULE)를 탐색하는 오픈소스 워크벤치입니다. MIT License · FEI · HEL Lab, Gyeongsang National University.">
+<meta name="description" content="OLFACTRA v0.2.0은 공개 분자·향조 데이터로 향 프로필을 추천하고(OLFACTRA ID), DIY 배합비와 안전 상한을 계산하며(STUDIO), 배합을 비교하고 물성·안전 여유분을 분석하며(COMPARE), 고대부터 이어진 향의 기원(ATLAS)과 향료 분자(MOLECULE)를 탐색하는 오픈소스 워크벤치입니다. 모든 지표는 측정·유도·휴리스틱 근거 등급과 출처, 경계를 함께 표시합니다. MIT License · FEI · HEL Lab, Gyeongsang National University.">
 <meta name="theme-color" content="#FAF9F5">
 <meta property="og:type" content="website">
 <meta property="og:title" content="OLFACTRA — The Intelligence of Scent">
 <meta property="og:description" content="공개 데이터 기반 향 추천 · 배합 계산 · 향의 역사 · 분자 탐색. 100% 브라우저 실행, MIT 오픈소스.">
 <meta property="og:url" content="https://sunbear5020.github.io/olfactra/">
 <meta property="og:locale" content="ko_KR">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141413'/%3E%3Cpath d='M16 5.5 25.5 11v10L16 26.5 6.5 21V11Z' fill='none' stroke='%23FAF9F5' stroke-width='1.4'/%3E%3Ccircle cx='16' cy='16' r='3.1' fill='%23D97757'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -41,8 +41,9 @@
       <button type="button" class="nav-btn" data-tab="studio">STUDIO</button>
       <button type="button" class="nav-btn" data-tab="atlas">ATLAS</button>
       <button type="button" class="nav-btn" data-tab="molecule">MOLECULE</button>
+      <button type="button" class="nav-btn" data-tab="method">METHOD</button>
     </nav>
-    <span class="header-pill"><b>MIT</b> · v<span data-version>0.1.0</span> Core</span>
+    <span class="header-pill"><b>MIT</b> · v<span data-version>0.2.0</span> Core</span>
   </div>
 </header>
 
@@ -62,6 +63,7 @@
         <span class="badge"><span class="dot"></span>100% 브라우저 실행</span>
         <span class="badge plain"><span data-count="molecules">43</span>개 공개 분자</span>
         <span class="badge plain"><span data-count="atlas">22</span>개 향의 기원</span>
+        <span class="badge plain"><span data-count="indicators">15</span>개 지표 출처·경계</span>
         <span class="badge plain">클린룸 MIT 라이선스</span>
       </div>
     </div>
@@ -106,8 +108,9 @@
       <div class="panel-head">
         <span class="module-tag">OLFACTRA STUDIO</span>
         <h2 id="h-studio">DIY 배합 계산기</h2>
-        <p>제품 유형·총 용량·부향률과 원료 비중을 넣으면 g/mL·완성품 농도·안전 상한 판정을 계산합니다.
-          레시피는 CSV·JSON으로 저장할 수 있습니다.</p>
+        <p>제품 유형·총 용량·부향률과 원료 비중을 넣으면 g/mL·완성품 농도·안전 상한 판정과
+          물성 프로파일(평균 분자량·LogP·TPSA)을 계산합니다. 레시피는 CSV·JSON(schema 0.2.0)·
+          <b>Markdown 연구 보고서</b>로 저장하고, 다른 배합과 나란히 비교할 수 있습니다.</p>
       </div>
       <div class="grid">
         <article class="card span-4">
@@ -156,6 +159,7 @@
               <p class="card-desc">판정은 완성품 무게 기준(w/w)이며, 노출 경로 계수를 함께 표시합니다.</p></div>
           </div>
           <div id="studio-summary" class="summary"></div>
+          <div id="studio-properties" class="summary props"></div>
           <div class="table-wrap">
             <table class="data-table" id="studio-table">
               <thead>
@@ -173,12 +177,48 @@
           </div>
           <div id="studio-safety" class="safety"></div>
           <div class="row">
-            <button type="button" class="btn primary" id="studio-csv">CSV 다운로드</button>
-            <button type="button" class="btn" id="studio-json">JSON 다운로드</button>
+            <button type="button" class="btn primary" id="studio-md">Markdown 보고서</button>
+            <button type="button" class="btn" id="studio-json">JSON (0.2.0)</button>
+            <button type="button" class="btn" id="studio-csv">CSV</button>
             <button type="button" class="btn ghost" id="studio-copy">레시피 복사</button>
           </div>
+          <p class="hint">Markdown 보고서에는 계량표·노트 피라미드·물성 프로파일·안전 판정과
+            <b>방법론·출처·경계</b>가 함께 들어갑니다. JSON은 <span class="mono">schema_version: "0.2.0"</span>으로
+            같은 내용을 기계가 읽는 형식으로 담습니다.</p>
         </article>
       </div>
+
+      <article class="card compare-card">
+        <div class="card-head">
+          <span class="card-num">04</span>
+          <div><h3 class="card-title">배합 비교 · 물성 요약</h3>
+            <p class="card-desc">현재 배합(A)을 다른 아코드·제형(B)과 나란히 놓고 노트 피라미드,
+              물성(분자량·LogP·TPSA), 안전 여유분(headroom)을 비교합니다.</p></div>
+        </div>
+        <div class="compare-controls">
+          <label class="field"><span class="field-label">비교 배합 B</span>
+            <select id="compare-accord" class="input"></select></label>
+          <label class="field"><span class="field-label">B 제형</span>
+            <select id="compare-product" class="input"></select></label>
+          <label class="field"><span class="field-label">B 용량 <output id="compare-volume-out">50</output> mL</span>
+            <input type="range" id="compare-volume" min="10" max="500" step="5" value="50"></label>
+          <label class="field"><span class="field-label">B 부향률 <output id="compare-load-out">20</output> %</span>
+            <input type="range" id="compare-load" min="0.5" max="35" step="0.5" value="20"></label>
+        </div>
+        <div id="compare-summary" class="compare-summary"></div>
+        <div class="table-wrap">
+          <table class="data-table compare-table" id="compare-table">
+            <thead><tr><th>지표</th><th class="num">A</th><th class="num">B</th><th class="num">차이</th><th>근거</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="compare-notes" class="compare-list"></div>
+        <p class="tiny-note" id="compare-boundary"></p>
+        <div class="row tight">
+          <button type="button" class="btn ghost small" id="compare-md">비교 보고서(Markdown)</button>
+          <button type="button" class="btn ghost small" id="compare-json">비교 JSON</button>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -274,6 +314,31 @@
     </div>
   </section>
 
+  <!-- ================= METHOD ================= -->
+  <section class="panel" id="panel-method" hidden aria-labelledby="h-method">
+    <div class="wrap">
+      <div class="panel-head">
+        <span class="module-tag">METHODOLOGY &amp; BOUNDARIES</span>
+        <h2 id="h-method">지표 정의 · 출처 · 과학적 경계</h2>
+        <p>OLFACTRA가 보여 주는 모든 숫자는 <b>측정</b>·<b>유도·계산</b>·<b>휴리스틱</b> 중 하나로
+          분류되고, 수식·입력·참고문헌·경계를 함께 표시합니다. 휴리스틱 지표는 순위를 돕는
+          근거일 뿐 측정값이 아니며, 측정값이 없는 분자는 추정으로 채우지 않습니다.</p>
+      </div>
+      <div class="method-kinds" id="method-kinds"></div>
+      <div class="method-list" id="method-list"></div>
+      <div class="grid">
+        <article class="card span-6">
+          <h3 class="card-title">과학적 경계</h3>
+          <div id="method-boundaries" class="method-boundaries"></div>
+        </article>
+        <article class="card span-6">
+          <h3 class="card-title">참고문헌 · 데이터셋</h3>
+          <div id="method-refs" class="method-refs"></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <footer class="site-footer">
@@ -304,14 +369,14 @@
     </div>
     <div class="footer-bottom">
       <span><a href="https://sunbear5020.github.io/hel-fei-site/">FEI · HEL 홈페이지</a></span>
-      <span class="mono">v<span data-version>0.1.0</span> · MIT</span>
-      <span><a href="https://github.com/sunbear5020/olfactra">GitHub</a></span>
+      <span class="mono">v<span data-version>0.2.0</span> · schema 0.2.0 · MIT</span>
+      <span><a href="#method">방법론·경계</a> · <a href="https://github.com/sunbear5020/olfactra">GitHub</a></span>
     </div>
   </div>
 </footer>
 
-<script src="data.js?v=6"></script>
-<script src="mol3d.js?v=5"></script>
-<script src="app.js?v=9"></script>
+<script src="data.js?v=7"></script>
+<script src="mol3d.js?v=6"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
