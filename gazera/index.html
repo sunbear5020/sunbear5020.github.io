@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GAZERA — Intelligent Eye-Tracking Data Analytics · HEL Lab</title>
-<meta name="description" content="GAZERA는 시선추적 CSV/TSV를 브라우저 안에서 바로 분석하는 연구용 오픈소스 워크벤치입니다. Fixation·Saccade·AOI 지표, 조건 비교, Heatmap·Scanpath 미리보기, CSV/JSON 내보내기. MIT License · FEI · HEL Lab, Gyeongsang National University.">
+<meta name="description" content="GAZERA는 시선추적 CSV/TSV를 브라우저 안에서 바로 분석하는 연구용 오픈소스 워크벤치입니다. Fixation·Saccade·AOI 지표, AOI 전이행렬·시선 엔트로피, 조건 비교, Heatmap·Scanpath 미리보기, CSV/JSON/Markdown·Excel 내보내기, 지표 정의·근거·경계 패널. MIT License · FEI · HEL Lab, Gyeongsang National University.">
 <meta name="theme-color" content="#FAF9F5">
 <meta property="og:title" content="GAZERA — From Gaze Data to Visual Intelligence">
 <meta property="og:description" content="Clean-room, vendor-neutral eye-tracking analytics. 100% in-browser, MIT licensed, FEI · HEL Lab.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sunbear5020.github.io/gazera/">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=12">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141413'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23FAF9F5' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23D97757'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -34,11 +34,13 @@
       <a href="#workbench">워크벤치</a>
       <a href="#rgb">RGB 제외</a>
       <a href="#results">분석 결과</a>
+      <a href="#transition">전이·엔트로피</a>
       <a href="#visual">시각화</a>
+      <a href="#methodology">지표</a>
       <a href="#python">Python 엔진</a>
       <a href="#license">라이선스</a>
     </nav>
-    <span class="header-pill"><b>MIT</b> · v0.1.0 Core</span>
+    <span class="header-pill"><b>MIT</b> · v0.2.0 Core</span>
   </div>
 </header>
 
@@ -59,6 +61,7 @@
         <span class="badge plain">클린룸 MIT 라이선스</span>
         <span class="badge plain">Tobii AB 비제휴 독립 프로젝트</span>
         <span class="badge plain">합성 데모 데이터 내장</span>
+        <span class="badge plain">AOI 전이·시선 엔트로피</span>
       </div>
     </div>
   </section>
@@ -350,12 +353,56 @@
               <th>참가자</th><th>조건</th><th class="num">응시</th>
               <th class="num">평균 응시(ms)</th><th class="num">도약</th>
               <th class="num">진폭(°)</th><th class="num">유효(%)</th>
+              <th class="num">정지 H</th><th class="num">전이 H</th>
             </tr>
           </thead>
-          <tbody><tr><td colspan="7" style="color:#6b6a66">—</td></tr></tbody>
+          <tbody><tr><td colspan="9" style="color:#6b6a66">—</td></tr></tbody>
         </table>
       </div>
     </details>
+  </section>
+
+  <!-- AOI transitions -------------------------------------------------- -->
+  <section class="wrap" id="transition">
+    <div class="section-head">
+      <h2>AOI 전이 &amp; 시선 엔트로피</h2>
+      <span class="count">Krejtz et al., 2014</span>
+      <p>응시가 관심영역 사이를 얼마나 자주, 얼마나 불규칙하게 오가는지 전이행렬과 섀넌 엔트로피로 요약합니다.</p>
+    </div>
+
+    <article class="card">
+      <div class="stat-grid" id="transitionKpis">
+        <div class="stat"><div class="k">AOI 내 응시</div><div class="v">—</div></div>
+        <div class="stat"><div class="k">AOI 전이</div><div class="v">—</div></div>
+        <div class="stat"><div class="k">정지 엔트로피</div><div class="v">—</div></div>
+        <div class="stat"><div class="k">전이 엔트로피</div><div class="v">—</div></div>
+      </div>
+
+      <div class="grid" style="margin-top:16px">
+        <div class="span-6">
+          <div class="mini-head"><b>전이확률 행렬</b><span>행(from) → 열(to)</span></div>
+          <div class="table-wrap">
+            <table class="data" id="transitionMatrix">
+              <thead></thead>
+              <tbody><tr><td class="muted">분석을 실행하면 전이행렬이 나타납니다.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="span-6">
+          <div class="mini-head"><b>조건별 엔트로피</b><span>bits · log2(AOI 수) 정규화</span></div>
+          <div class="table-wrap">
+            <table class="data" id="entropyTable">
+              <thead><tr><th>조건</th><th class="num">전이</th><th class="num">정지 H</th><th class="num">전이 H</th><th class="num">전이 H 정규화</th></tr></thead>
+              <tbody><tr><td class="muted">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p class="table-note" id="transitionNote">
+        전이는 연속한 두 응시가 서로 다른 AOI에 있을 때만 셉니다. 기록 경계는 전이로 세지 않으며,
+        AOI 구성이 다른 분석과 엔트로피를 직접 비교하지 않습니다.
+      </p>
+    </article>
   </section>
 
   <!-- visualisation ---------------------------------------------------- -->
@@ -398,6 +445,38 @@
     </article>
   </section>
 
+  <!-- methodology ------------------------------------------------------ -->
+  <section class="wrap" id="methodology">
+    <div class="section-head">
+      <h2>지표 정의 · 근거 · 경계</h2>
+      <span class="count" id="methodologyScope">—</span>
+      <p>모든 숫자가 무엇인지, 어떤 수식으로 계산했는지, 어디까지만 읽어야 하는지 함께 적습니다.</p>
+    </div>
+
+    <article class="card">
+      <div class="method-legend">
+        <span class="kind-badge kind-measured">measured</span> 장비가 기록한 값
+        <span class="kind-badge kind-derived">derived</span> 실측값의 결정론적 계산
+        <span class="kind-badge kind-exploratory">exploratory</span> 분포·표본 가정에 의존하는 해석
+      </div>
+      <div class="table-scroll">
+        <table class="data method-table" id="methodologyTable">
+          <thead><tr><th>지표</th><th>구분</th><th>단위</th><th>수식</th><th>경계</th></tr></thead>
+          <tbody><tr><td colspan="5" class="muted">지표 정의를 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+      <details class="method-refs">
+        <summary>참고문헌 · DOI</summary>
+        <ul id="methodRefs" class="ref-list"><li class="muted">—</li></ul>
+      </details>
+      <p class="table-note">
+        웹 워크벤치는 브라우저에서 계산할 수 있는 파생 지표와 Cohen's d를 보여 줍니다.
+        정규성 판정·t-test/Mann-Whitney/Wilcoxon·Holm 보정이 포함된 추론 통계와 Excel·Markdown 보고서는
+        Python 엔진(<code>gazera analyze</code>)이 같은 정의로 산출합니다.
+      </p>
+    </article>
+  </section>
+
   <!-- downloads -------------------------------------------------------- -->
   <section class="wrap" id="downloads">
     <div class="section-head">
@@ -412,8 +491,13 @@
       </div>
       <div class="download">
         <h4>전체 보고서 · JSON</h4>
-        <p>품질·설정·세그먼트 요약·조건통계를 담은 기계 판독용 보고서.</p>
+        <p>품질·설정·세그먼트 요약·조건통계·전이·엔트로피·지표 정의를 담은 <code>schema_version 0.2.0</code> 보고서.</p>
         <button class="btn secondary small" id="dlJson" type="button" disabled>JSON 다운로드</button>
+      </div>
+      <div class="download">
+        <h4>분석 보고서 · Markdown</h4>
+        <p>데이터·품질·AOI·전이·엔트로피·조건 비교·지표 정의를 담은 8장 리포트(.md).</p>
+        <button class="btn secondary small" id="dlMd" type="button" disabled>Markdown 다운로드</button>
       </div>
       <div class="download">
         <h4>Python 엔진 연계</h4>
@@ -427,7 +511,7 @@
   <section class="wrap" id="python">
     <div class="section-head">
       <h2>Python 엔진으로 이어서</h2>
-      <span class="count">GAZERA Core 0.1.0</span>
+      <span class="count">GAZERA Core 0.2.0</span>
       <p>웹은 미리보기, 최종 보고서는 엔진으로. 정의는 동일합니다.</p>
     </div>
     <div class="docs">
@@ -449,9 +533,10 @@ uvicorn api.server:app --port 8000</code></pre>
         <li><b>loader</b><span>인코딩·구분자·머리말 자동 감지, 컬럼 자동/수동 매핑 <em>(CSV/TSV만)</em></span></li>
         <li><b>cleaner</b><span>유효 시선 비율 · 추정 Hz · 결측률 · 시간 단조성 · 화면 밖 좌표 검사</span></li>
         <li><b>ivt</b><span>공개 문헌 기반 I-VT. 화면 기하로 px→deg 환산 후 응시/도약 분류</span></li>
-        <li><b>metrics</b><span>응시 횟수·시간, 도약 빈도·진폭·속도, AOI 체류·방문·TTFF</span></li>
+        <li><b>metrics</b><span>응시 횟수·시간, 도약 빈도·진폭·속도, AOI 체류·방문·TTFF, AOI 전이행렬·시선 엔트로피</span></li>
         <li><b>stats</b><span>정규성 검정 후 t-test / Mann-Whitney / Wilcoxon, 효과크기, Holm 보정</span></li>
-        <li><b>exporter</b><span>Excel 다중 시트 · CSV · JSON (API·웹과 같은 스키마)</span></li>
+        <li><b>provenance</b><span>지표·통계의 수식·단위·DOI·경계(measured/derived/exploratory)</span></li>
+        <li><b>exporter</b><span>Excel 다중 시트(+Methodology) · CSV · JSON(0.2.0) · Markdown 보고서</span></li>
       </ul>
     </div>
   </section>
@@ -528,13 +613,13 @@ uvicorn api.server:app --port 8000</code></pre>
     </div>
     <div class="footer-bottom">
       <span>MIT License · Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University</span>
-      <span>v0.1.0 · GAZERA Core · <a href="https://github.com/sunbear5020" style="color:inherit;text-decoration:none;border-bottom:1px solid #c9c5b8">sunbear5020</a></span>
+      <span>v0.2.0 · GAZERA Core · <a href="https://github.com/sunbear5020" style="color:inherit;text-decoration:none;border-bottom:1px solid #c9c5b8">sunbear5020</a></span>
     </div>
   </div>
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

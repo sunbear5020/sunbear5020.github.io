@@ -111,6 +111,48 @@
     '도심 가로': { weights: [0.12, 0.3, 0.58], xBias: [0.45, 0.74, 0.5], xSpread: 0.55, fixation: 228 },
   };
 
+  /* ------------------------------------------------------- version · method */
+  const VERSION = '0.2.0';
+  const SCHEMA_VERSION = '0.2.0';
+
+  const BOUNDARIES = {
+    measured: { label: '실측 (measured)', text: '장비가 기록해 내보낸 값 그대로입니다. 워크벤치는 값을 만들지 않습니다.' },
+    derived: { label: '파생 (derived)', text: '실측값에 명시된 수식과 파라미터를 적용해 결정론적으로 계산한 값입니다. 같은 입력이면 같은 값이 나오지만, 그 자체가 측정값은 아닙니다.' },
+    exploratory: { label: '탐색 (exploratory)', text: '분포 가정·선택한 파라미터·표본 크기에 해석이 좌우되는 값입니다. 경향을 정렬할 수는 있지만, 그것만으로 가설을 확정하지 않습니다.' },
+  };
+
+  const REFERENCES = {
+    salvucci2000: "Salvucci, D. D., & Goldberg, J. H. (2000). Identifying fixations and saccades in eye-tracking protocols. ETRA '00, 71–78. doi:10.1145/355017.355028",
+    krejtz2014: "Krejtz, K., Szmidt, T., Duchowski, A. T., & Krejtz, I. (2014). Entropy-based statistical analysis of eye movement transitions. ETRA '14, 159–166. doi:10.1145/2578153.2578176",
+    duchowski2017: 'Duchowski, A. T. (2017). Eye Tracking Methodology: Theory and Practice (3rd ed.). Springer. doi:10.1007/978-3-319-57883-5',
+    holmqvist2011: 'Holmqvist, K., Nyström, M., Andersson, R., Dewhurst, R., Jarodzka, H., & van de Weijer, J. (2011). Eye Tracking: A Comprehensive Guide to Methods and Measures. Oxford University Press.',
+    cohen1988: 'Cohen, J. (1988). Statistical Power Analysis for the Behavioral Sciences (2nd ed.). Lawrence Erlbaum Associates.',
+    shapiro1965: 'Shapiro, S. S., & Wilk, M. B. (1965). An analysis of variance test for normality. Biometrika, 52(3–4), 591–611. doi:10.1093/biomet/52.3-4.591',
+  };
+
+  const METHODOLOGY = [
+    { key: 'valid_ratio', label: '유효 시선 비율', group: '품질', unit: '0–1', kind: 'derived', formula: 'n(valid = True) / n(samples)', boundary: '유효성 열의 약속(0=유효 / 0–4 척도)을 자동 판별합니다. 유효성 열이 없으면 모든 행을 유효로 간주하므로 이 값은 1이 되며, 그것이 데이터가 깨끗하다는 뜻은 아닙니다.' },
+    { key: 'missing_ratio', label: '결측 좌표 비율', group: '품질', unit: '0–1', kind: 'derived', formula: 'n(gaze_x 또는 gaze_y 결측) / n(samples)', boundary: '결측이 곧 제외된 시선은 아니며, 짧은 공백은 보간되고 긴 공백은 구간을 나눕니다.' },
+    { key: 'sample_rate_hz', label: '추정 샘플링 주기', group: '품질', unit: 'Hz', kind: 'derived', formula: '1000 / median(Δt)', boundary: '파일의 타임스탬프 간격에서 추정한 값이며 장비 사양값이 아닙니다.' },
+    { key: 'rgb_excluded_ratio', label: 'RGB 제외 비율', group: '품질', unit: '0–1', kind: 'derived', formula: 'n(제외색 위 샘플) / n(samples)', boundary: '프레임 샘플링 간격과 색 허용 오차에 따라 달라지므로 두 파라미터를 함께 읽습니다.' },
+    { key: 'fixation_count', label: '응시 횟수', group: 'I-VT', unit: 'count', kind: 'derived', formula: 'fixation으로 분류된 구간 수', boundary: '임계값·최소 응시시간 설정이 다른 연구와 직접 비교하지 않습니다.', ref: 'salvucci2000' },
+    { key: 'fixation_duration', label: '응시 시간', group: 'I-VT', unit: 'ms', kind: 'derived', formula: 'end_ms − start_ms', boundary: '구간의 첫·끝 샘플 시각 차이이며, 한 샘플짜리 구간은 0 ms입니다.', ref: 'salvucci2000' },
+    { key: 'fixation_rate', label: '초당 응시 빈도', group: 'I-VT', unit: '1/s', kind: 'derived', formula: 'fixation_count / Σ 구간 길이(s)', boundary: '시선이 없는 공백이 많으면 값이 올라갑니다.', ref: 'salvucci2000' },
+    { key: 'saccade_amplitude', label: '도약 진폭', group: 'I-VT', unit: 'degree', kind: 'derived', formula: '‖centroid(앞 3) − centroid(뒤 3)‖ / px_per_deg', boundary: '화면 기하로 추정한 px/deg를 씁니다. 실제 시청거리가 다르면 각도도 달라집니다.', ref: 'salvucci2000' },
+    { key: 'saccade_velocity', label: '도약 속도', group: 'I-VT', unit: 'degree/s', kind: 'derived', formula: 'max(‖Δp‖ / Δt) / px_per_deg', boundary: '샘플링 주기가 낮으면 짧은 도약의 최고 속도를 과소평가합니다.', ref: 'salvucci2000' },
+    { key: 'px_per_deg', label: '화소–시각도 환산', group: 'I-VT', unit: 'px/degree', kind: 'derived', formula: 'W_px / (2·atan(W_mm/2/D_mm)·180/π)', boundary: '1920 px · 530 mm · 650 mm는 가정치입니다. 알려진 값을 설정에 넣어야 합니다.', ref: 'duchowski2017' },
+    { key: 'aoi_dwell', label: 'AOI 체류시간', group: 'AOI', unit: 'ms', kind: 'derived', formula: 'Σ fixation.duration_ms where centroid ∈ AOI', boundary: 'AOI가 겹치면 한 응시가 둘 이상 영역에 계수되어 합이 100%를 넘을 수 있습니다.', ref: 'holmqvist2011' },
+    { key: 'aoi_dwell_ratio', label: 'AOI 체류 비율', group: 'AOI', unit: '0–1', kind: 'derived', formula: 'AOI dwell / Σ fixation duration (recording)', boundary: 'recording 전체 응시시간 대비이며 자극 노출시간 대비가 아닙니다.', ref: 'holmqvist2011' },
+    { key: 'aoi_visits', label: 'AOI 방문 횟수', group: 'AOI', unit: 'count', kind: 'derived', formula: 'count(fixations whose centroid ∈ AOI)', boundary: '중심점 기준이며, 겹치는 AOI에서는 한 응시가 여러 번 셀 수 있습니다.', ref: 'holmqvist2011' },
+    { key: 'ttff', label: '최초 응시까지 시간 (TTFF)', group: 'AOI', unit: 'ms', kind: 'derived', formula: 'min(fixation.start ∈ AOI) − recording start', boundary: 'recording 시작 기준입니다. 자극 제시 시점이 다르면 offset으로 맞춰야 합니다.', ref: 'holmqvist2011' },
+    { key: 'transition_count', label: 'AOI 전이 횟수', group: '전이', unit: 'count', kind: 'derived', formula: '연속한 두 응시가 서로 다른 AOI에 있을 때 1회', boundary: 'AOI 밖 응시는 사슬을 끊고, 자기 전이(A→A)는 세지 않습니다.', ref: 'krejtz2014' },
+    { key: 'transition_probability', label: 'AOI 전이확률', group: '전이', unit: '0–1', kind: 'derived', formula: 'P(i→j) = n(i→j) / Σ_j n(i→j)', boundary: '전이가 5회 미만인 행은 0이나 1로 과장되므로 탐색적으로만 읽습니다.', ref: 'krejtz2014' },
+    { key: 'stationary_entropy', label: '정지 시선 엔트로피', group: '전이', unit: 'bits', kind: 'derived', formula: 'H_s = −Σ π_i log2 π_i', boundary: 'AOI 구성(개수·크기)에 의존합니다. AOI 집합이 다른 분석과 직접 비교하지 않습니다.', ref: 'krejtz2014' },
+    { key: 'transition_entropy', label: '전이 시선 엔트로피', group: '전이', unit: 'bits', kind: 'derived', formula: 'H_t = Σ π_i · (−Σ_j p_ij log2 p_ij)', boundary: '전이 수가 적으면 과소평가됩니다. 정규화는 log2(AOI 수)로 나눈 참고치입니다.', ref: 'krejtz2014' },
+    { key: 'cohens_d', label: "효과크기 (Cohen's d)", group: '통계', unit: 'SD units', kind: 'derived', formula: '(x̄a − x̄b) / s_pooled', boundary: '0.2/0.5/0.8은 관례일 뿐입니다. 작은 표본에서는 d 자체가 크게 흔들립니다.', ref: 'cohen1988' },
+    { key: 'p_value', label: 'p-value · 유의수준', group: '통계', unit: 'p', kind: 'exploratory', formula: 'α = 0.05 (사전 지정)', boundary: 'p는 효과의 크기·재현성을 말하지 않습니다. 웹 워크벤치는 p-value를 계산하지 않고, Python 엔진이 정규성 판정 후 Holm 보정과 함께 산출합니다.', ref: 'shapiro1965' },
+  ];
+
   function mulberry32(seed) {
     let a = seed >>> 0;
     return function () {
@@ -816,6 +858,14 @@
           ttff: inside.length ? Math.min(...inside.map((s) => s.start)) - base : NaN,
         };
       }
+      const labels = fix
+        .slice()
+        .sort((a, b) => a.start - b.start)
+        .map((s) => aoiNameAt(aois, s.cx, s.cy, frame.screen.w, frame.screen.h));
+      const entropy = entropyStatsFromLabels(labels, aois.map((a) => a.name));
+      row.aoiTransitionCount = entropy.nTransitions;
+      row.aoiStationaryEntropy = entropy.stationaryEntropy;
+      row.aoiTransitionEntropy = entropy.transitionEntropy;
       participants.push(row);
     }
     return participants;
@@ -846,6 +896,149 @@
     const pooled = Math.sqrt(((a.length - 1) * s1 * s1 + (b.length - 1) * s2 * s2) / (a.length + b.length - 2));
     if (!pooled) return 0;
     return (mean(a) - mean(b)) / pooled;
+  }
+
+  /* ------------------------------------------------ AOI transitions · entropy */
+  const esc = (value) =>
+    String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
+
+  function aoiNameAt(aois, x, y, w, h) {
+    for (const aoi of aois) {
+      if (aoiContains(aoi, x, y, w, h)) return aoi.name;
+    }
+    return null;
+  }
+
+  function countsForLabels(labels, names) {
+    const n = names.length;
+    const index = new Map(names.map((name, i) => [name, i]));
+    const counts = Array.from({ length: n }, () => new Array(n).fill(0));
+    const visits = new Array(n).fill(0);
+    for (let i = 0; i < labels.length; i += 1) {
+      const current = labels[i];
+      if (current === null || current === undefined || !index.has(current)) continue;
+      visits[index.get(current)] += 1;
+      if (i === 0) continue;
+      const previous = labels[i - 1];
+      // a fixation outside every AOI breaks the chain; A -> A is not a switch
+      if (previous === null || previous === undefined || !index.has(previous) || previous === current) continue;
+      counts[index.get(previous)][index.get(current)] += 1;
+    }
+    return { counts, visits };
+  }
+
+  function entropyStats(counts, visits, names) {
+    const n = names.length;
+    const total = visits.reduce((s, v) => s + v, 0);
+    const pi = visits.map((v) => (total > 0 ? v / total : 0));
+    const stationary = -pi.reduce((s, p) => s + (p > 0 ? p * Math.log2(p) : 0), 0);
+    const rowTotals = counts.map((row) => row.reduce((s, v) => s + v, 0));
+    const transition = counts.reduce((sum, row, i) => {
+      if (!rowTotals[i]) return sum;
+      const h = -row.reduce((s, v) => s + (v > 0 ? (v / rowTotals[i]) * Math.log2(v / rowTotals[i]) : 0), 0);
+      return sum + pi[i] * h;
+    }, 0);
+    const norm = n > 1 ? Math.log2(n) : 0;
+    return {
+      counts,
+      visits,
+      pi,
+      rowTotals,
+      nFixations: total,
+      nTransitions: counts.reduce((s, row) => s + row.reduce((a, v) => a + v, 0), 0),
+      visited: pi.filter((p) => p > 0).length,
+      stationaryEntropy: stationary,
+      transitionEntropy: transition,
+      stationaryNorm: norm ? stationary / norm : 0,
+      transitionNorm: norm ? transition / norm : 0,
+    };
+  }
+
+  function entropyStatsFromLabels(labels, names) {
+    const { counts, visits } = countsForLabels(labels, names);
+    return entropyStats(counts, visits, names);
+  }
+
+  function aggregateEntropy(labelLists, names) {
+    const n = names.length;
+    const counts = Array.from({ length: n }, () => new Array(n).fill(0));
+    const visits = new Array(n).fill(0);
+    for (const labels of labelLists) {
+      const stats = entropyStatsFromLabels(labels, names);
+      stats.counts.forEach((row, i) => row.forEach((v, j) => { counts[i][j] += v; }));
+      stats.visits.forEach((v, i) => { visits[i] += v; });
+    }
+    return entropyStats(counts, visits, names);
+  }
+
+  function computeTransitions(segments, aois, screen) {
+    const names = aois.map((a) => a.name);
+    const byGroup = new Map();
+    for (const seg of segments) {
+      if (seg.type !== 'fixation') continue;
+      if (!byGroup.has(seg.group)) byGroup.set(seg.group, []);
+      byGroup.get(seg.group).push(seg);
+    }
+    const byRecording = [];
+    const labelLists = [];
+    const conditionLists = new Map();
+    for (const [group, segs] of byGroup) {
+      segs.sort((a, b) => a.start - b.start);
+      const labels = segs.map((s) => aoiNameAt(aois, s.cx, s.cy, screen.w, screen.h));
+      const stats = entropyStatsFromLabels(labels, names);
+      const first = segs[0] || {};
+      const condition = first.condition || '—';
+      byRecording.push({
+        group,
+        subject: first.subject || 'all',
+        trial: first.trial || '',
+        condition,
+        n_fixations: stats.nFixations,
+        n_transitions: stats.nTransitions,
+        visited_aois: stats.visited,
+        stationary_entropy_bits: stats.stationaryEntropy,
+        transition_entropy_bits: stats.transitionEntropy,
+        stationary_entropy_normalized: stats.stationaryNorm,
+        transition_entropy_normalized: stats.transitionNorm,
+      });
+      labelLists.push(labels);
+      if (!conditionLists.has(condition)) conditionLists.set(condition, []);
+      conditionLists.get(condition).push(labels);
+    }
+    const pooled = aggregateEntropy(labelLists, names);
+    const byCondition = Array.from(conditionLists.entries()).map(([condition, lists]) => {
+      const stats = aggregateEntropy(lists, names);
+      return {
+        condition,
+        n_fixations: stats.nFixations,
+        n_transitions: stats.nTransitions,
+        visited_aois: stats.visited,
+        stationary_entropy_bits: stats.stationaryEntropy,
+        transition_entropy_bits: stats.transitionEntropy,
+        stationary_entropy_normalized: stats.stationaryNorm,
+        transition_entropy_normalized: stats.transitionNorm,
+      };
+    });
+    const probabilities = pooled.counts.map((row, i) =>
+      row.map((v) => (pooled.rowTotals[i] ? v / pooled.rowTotals[i] : 0))
+    );
+    return {
+      aois: names,
+      pooled,
+      byCondition,
+      byRecording,
+      counts: pooled.counts,
+      probabilities,
+      note:
+        '전이는 연속한 두 응시가 서로 다른 AOI에 있을 때만 셉니다. 기록 경계는 전이로 세지 않습니다. ' +
+        '정지 엔트로피는 AOI별 응시 비중, 전이 엔트로피는 전이행렬을 그 비중으로 가중한 값입니다 (Krejtz et al., 2014).',
+    };
   }
 
   /* ------------------------------------------------------------ rendering */
@@ -1023,11 +1216,15 @@
     document.querySelector('#aoiTable tbody').innerHTML =
       `<tr><td colspan="6" style="color:#6b6a66">${message || '분석을 실행하면 표가 채워집니다.'}</td></tr>`;
     document.querySelector('#statsTable tbody').innerHTML = '<tr><td colspan="4" style="color:#6b6a66">—</td></tr>';
-    document.querySelector('#participantTable tbody').innerHTML = '<tr><td colspan="7" style="color:#6b6a66">—</td></tr>';
+    document.querySelector('#participantTable tbody').innerHTML = '<tr><td colspan="9" style="color:#6b6a66">—</td></tr>';
     $('resultCount').textContent = '—';
     $('resultSub').textContent = '데이터를 불러오고 컬럼을 확인하면 분석 결과가 나타납니다.';
     $('dlCsv').disabled = true;
     $('dlJson').disabled = true;
+    if ($('dlMd')) $('dlMd').disabled = true;
+    if ($('transitionKpis')) $('transitionKpis').innerHTML = '';
+    if ($('transitionMatrix')) $('transitionMatrix').innerHTML = '<thead></thead><tbody><tr><td class="muted">분석을 실행하면 전이행렬이 나타납니다.</td></tr></tbody>';
+    if ($('entropyTable')) $('entropyTable').innerHTML = '<tbody><tr><td class="muted">—</td></tr></tbody>';
     $('previewCondition').innerHTML = '';
     $('previewSubject').innerHTML = '';
     $('canvasMeta').textContent = '—';
@@ -1105,6 +1302,8 @@
       { key: 'saccadeCount', label: '도약 횟수', digits: 1 },
       { key: 'saccadeAmplitude', label: '도약 진폭(°)', digits: 2 },
       { key: 'saccadePeak', label: '도약 속도(°/s)', digits: 0 },
+      { key: 'aoiStationaryEntropy', label: '정지 엔트로피(bits)', digits: 3 },
+      { key: 'aoiTransitionEntropy', label: '전이 엔트로피(bits)', digits: 3 },
     ];
     for (const aoi of aois) {
       metrics.push({
@@ -1139,15 +1338,66 @@
       .sort((x, y) => (x.condition + x.subject).localeCompare(y.condition + y.subject, 'ko'))
       .map(
         (p) => `<tr>
-          <td>${p.subject}</td><td>${p.condition}</td>
+          <td>${esc(p.subject)}</td><td>${esc(p.condition)}</td>
           <td class="num">${p.fixationCount}</td>
           <td class="num">${fmt(p.fixationMean, 0)}</td>
           <td class="num">${p.saccadeCount}</td>
           <td class="num">${fmt(p.saccadeAmplitude, 2)}</td>
           <td class="num">${pct(p.validRatio)}</td>
+          <td class="num">${fmt(p.aoiStationaryEntropy, 3)}</td>
+          <td class="num">${fmt(p.aoiTransitionEntropy, 3)}</td>
         </tr>`
       )
       .join('');
+  }
+
+  function renderTransitions() {
+    const analysis = state.analysis;
+    if (!analysis || !analysis.transitions) return;
+    const { aois, pooled, probabilities, byCondition } = analysis.transitions;
+    const kpis = [
+      { k: 'AOI 내 응시', v: fmt(pooled.nFixations, 0), d: `${pooled.visited}/${aois.length} AOI 방문` },
+      { k: 'AOI 전이', v: fmt(pooled.nTransitions, 0), d: '자기 전이 제외' },
+      { k: '정지 엔트로피', v: `${fmt(pooled.stationaryEntropy, 3)}<small>bits</small>`, d: `정규화 ${fmt(pooled.stationaryNorm, 3)}` },
+      { k: '전이 엔트로피', v: `${fmt(pooled.transitionEntropy, 3)}<small>bits</small>`, d: `정규화 ${fmt(pooled.transitionNorm, 3)}` },
+    ];
+    $('transitionKpis').innerHTML = kpis
+      .map((item) => `<div class="stat"><div class="k">${item.k}</div><div class="v">${item.v}</div><div class="d">${item.d}</div></div>`)
+      .join('');
+
+    const head = `<tr><th>from \\ to</th>${aois.map((a) => `<th class="num">${esc(a)}</th>`).join('')}</tr>`;
+    const rows = aois.map(
+      (from, i) => `<tr><td><b>${esc(from)}</b></td>${probabilities[i]
+        .map((v) => `<td class="num">${v ? v.toFixed(3) : '—'}</td>`)
+        .join('')}</tr>`
+    );
+    $('transitionMatrix').innerHTML = `<thead>${head}</thead><tbody>${rows.join('')}</tbody>`;
+
+    $('entropyTable').innerHTML = `<thead><tr><th>조건</th><th class="num">전이</th><th class="num">정지 H</th><th class="num">전이 H</th><th class="num">전이 H 정규화</th></tr></thead><tbody>${byCondition
+      .map(
+        (row) => `<tr><td>${esc(row.condition)}</td><td class="num">${fmt(row.n_transitions, 0)}</td><td class="num">${fmt(row.stationary_entropy_bits, 3)}</td><td class="num">${fmt(row.transition_entropy_bits, 3)}</td><td class="num">${fmt(row.transition_entropy_normalized, 3)}</td></tr>`
+      )
+      .join('')}</tbody>`;
+    const note = $('transitionNote');
+    if (note) {
+      note.textContent = `AOI ${aois.length}개 · 정지 엔트로피는 AOI별 응시 비중, 전이 엔트로피는 전이확률 행의 엔트로피를 그 비중으로 가중한 값입니다. AOI 구성이 다른 분석과 직접 비교하지 않습니다 (Krejtz et al., 2014).`;
+    }
+  }
+
+  function renderMethodology() {
+    const tbody = document.querySelector('#methodologyTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = METHODOLOGY.map(
+      (item) => `<tr>
+        <td class="metric-name">${esc(item.label)}</td>
+        <td><span class="kind-badge kind-${item.kind}">${item.kind}</span></td>
+        <td>${esc(item.unit)}</td>
+        <td class="mono-cell">${esc(item.formula)}</td>
+        <td class="boundary-cell">${esc(item.boundary)}</td>
+      </tr>`
+    ).join('');
+    $('methodologyScope').textContent = `${METHODOLOGY.length}개 지표 · v${VERSION}`;
+    $('methodRefs').innerHTML = Object.values(REFERENCES).map((ref) => `<li>${esc(ref)}</li>`).join('');
   }
 
   /* --------------------------------------------- stimulus & RGB exclusion */
@@ -2048,9 +2298,9 @@
     toast('참가자별 지표 CSV를 내려받았습니다.');
   }
 
-  function downloadJson() {
-    if (!state.analysis) return;
-    const { participants, aois, conditions, segments, pxPerDeg, config, base } = state.analysis;
+  function buildBundle() {
+    if (!state.analysis) return null;
+    const { participants, aois, conditions, segments, pxPerDeg, config, base, transitions } = state.analysis;
     const rgb = state.rgb;
     const stim = stimCtl();
     const totalSamples = state.frame ? state.frame.samples.length : 0;
@@ -2092,10 +2342,46 @@
             : null,
         }
       : null;
-    const payload = {
+    const transitionPayload = transitions
+      ? {
+          aois: transitions.aois,
+          counts: transitions.counts,
+          probabilities: transitions.probabilities.map((row) => row.map((v) => round(v, 6))),
+          by_condition: transitions.byCondition.map((row) => ({
+            condition: row.condition,
+            n_fixations: row.n_fixations,
+            n_transitions: row.n_transitions,
+            visited_aois: row.visited_aois,
+            stationary_entropy_bits: round(row.stationary_entropy_bits, 4),
+            transition_entropy_bits: round(row.transition_entropy_bits, 4),
+            stationary_entropy_normalized: round(row.stationary_entropy_normalized, 4),
+            transition_entropy_normalized: round(row.transition_entropy_normalized, 4),
+          })),
+          by_recording: transitions.byRecording.map((row) => ({
+            ...row,
+            stationary_entropy_bits: round(row.stationary_entropy_bits, 4),
+            transition_entropy_bits: round(row.transition_entropy_bits, 4),
+            stationary_entropy_normalized: round(row.stationary_entropy_normalized, 4),
+            transition_entropy_normalized: round(row.transition_entropy_normalized, 4),
+          })),
+          pooled: {
+            n_fixations: transitions.pooled.nFixations,
+            n_transitions: transitions.pooled.nTransitions,
+            visited_aois: transitions.pooled.visited,
+            stationary_entropy_bits: round(transitions.pooled.stationaryEntropy, 4),
+            transition_entropy_bits: round(transitions.pooled.transitionEntropy, 4),
+            stationary_entropy_normalized: round(transitions.pooled.stationaryNorm, 4),
+            transition_entropy_normalized: round(transitions.pooled.transitionNorm, 4),
+          },
+          note: transitions.note,
+        }
+      : null;
+    return {
       schema: 'gazera.result.v1',
+      schema_version: SCHEMA_VERSION,
+      software_version: VERSION,
       generated_at: new Date().toISOString(),
-      generator: 'GAZERA web workbench 0.1.0',
+      generator: `GAZERA web workbench ${VERSION}`,
       source: { file: state.fileName, synthetic: state.source === 'demo' },
       mapping: state.mapping,
       config: { velocity_threshold_deg_s: config.threshold, min_fixation_ms: config.minFixation, px_per_deg: pxPerDeg, aois },
@@ -2113,21 +2399,51 @@
           count: mean(participants.map((p) => p.saccadeCount)),
           mean_amplitude_deg: mean(participants.map((p) => p.saccadeAmplitude)),
         },
+        transitions: transitionPayload ? transitionPayload.pooled : null,
       },
-      participants,
+      participants: participants.map((p) => ({
+        subject: p.subject,
+        trial: p.trial,
+        condition: p.condition,
+        duration_s: round(p.duration, 3),
+        valid_ratio: round(p.validRatio, 4),
+        fixation_count: p.fixationCount,
+        fixation_total_ms: round(p.fixationTotal, 1),
+        fixation_mean_ms: round(p.fixationMean, 1),
+        fixation_median_ms: round(p.fixationMedian, 1),
+        fixation_rate_per_s: round(p.fixationRate, 3),
+        saccade_count: p.saccadeCount,
+        saccade_amplitude_mean_deg: round(p.saccadeAmplitude, 3),
+        saccade_peak_velocity_mean_deg_s: round(p.saccadePeak, 1),
+        aoi_transition_count: p.aoiTransitionCount,
+        aoi_stationary_entropy_bits: round(p.aoiStationaryEntropy, 4),
+        aoi_transition_entropy_bits: round(p.aoiTransitionEntropy, 4),
+        aois: p.aois,
+      })),
       aoi: aois.map((a) => {
         const perCondition = {};
         for (const cond of conditions) {
           const list = participants.filter((p) => p.condition === cond);
+          const ttffs = list.map((p) => p.aois[a.name]?.ttff).filter((v) => Number.isFinite(v));
           perCondition[cond] = {
             n: list.length,
             dwell_ms: mean(list.map((p) => p.aois[a.name]?.dwell || 0)),
             dwell_ratio: mean(list.map((p) => p.aois[a.name]?.ratio || 0)),
             visits: mean(list.map((p) => p.aois[a.name]?.visits || 0)),
+            ttff_ms: ttffs.length ? mean(ttffs) : null,
           };
         }
         return { ...a, conditions: perCondition };
       }),
+      transitions: transitionPayload,
+      methodology: {
+        version: VERSION,
+        schema_version: SCHEMA_VERSION,
+        note: 'measured = exported value; derived = deterministic formula on measured values; exploratory = assumption-dependent. None is a diagnosis.',
+        boundaries: BOUNDARIES,
+        references: REFERENCES,
+        indicators: Object.fromEntries(METHODOLOGY.map((item) => [item.key, item])),
+      },
       segments_by_recording: Object.fromEntries(
         Array.from(new Set(segments.map((s) => s.group))).map((key) => [key, segments.filter((s) => s.group === key).length])
       ),
@@ -2136,8 +2452,170 @@
         affiliation: 'GAZERA is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Tobii AB.',
       },
     };
+  }
+
+  function round(value, digits) {
+    return Number.isFinite(value) ? Math.round(value * 10 ** digits) / 10 ** digits : null;
+  }
+
+  function downloadJson() {
+    const payload = buildBundle();
+    if (!payload) return;
     download(`gazera_report_${dateStamp()}.json`, JSON.stringify(payload, null, 2), 'application/json');
-    toast('전체 보고서 JSON을 내려받았습니다.');
+    toast(`전체 보고서 JSON(schema ${SCHEMA_VERSION})을 내려받았습니다.`);
+  }
+
+  /* ------------------------------------------------------------- markdown */
+  function mdCell(value, digits = 2) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(digits) : '—';
+    return String(value).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  }
+
+  function markdownReport() {
+    const bundle = buildBundle();
+    if (!bundle) return '';
+    const q = bundle.quality;
+    const s = bundle.summary;
+    const t = bundle.transitions;
+    const cfg = bundle.config;
+    const lines = [];
+    lines.push(`# GAZERA 분석 보고서 — ${bundle.source.file}`);
+    lines.push('');
+    lines.push(`**FEI · HEL Lab, 경상국립대학교** · v${VERSION} (schema_version ${SCHEMA_VERSION})  `);
+    lines.push(`생성: ${new Date(bundle.generated_at).toLocaleString('ko-KR')} · 100% 로컬 실행 · MIT License`);
+    lines.push('');
+    lines.push('> 연구용 분석 보고서입니다. 실측(measured) · 파생(derived) · 탐색(exploratory) 지표를 구분해 표시하며, 어떤 값도 임상 진단이 아닙니다. GAZERA는 Tobii AB와 제휴·후원·보증 관계가 없는 독립 프로젝트입니다.');
+    lines.push('');
+    lines.push('## 1. 데이터와 설정');
+    lines.push('');
+    lines.push('| 항목 | 값 |');
+    lines.push('| --- | --- |');
+    lines.push(`| 원본 파일 | ${mdCell(bundle.source.file)}${bundle.source.synthetic ? ' (100% 합성 데모)' : ''} |`);
+    lines.push(`| 행 수 | ${s.rows.toLocaleString('ko-KR')} |`);
+    lines.push(`| recording 수 | ${s.recordings} |`);
+    lines.push(`| 조건 | ${mdCell(s.conditions.join(', '))} |`);
+    lines.push(`| I-VT 임계값 | ${cfg.velocity_threshold_deg_s} °/s |`);
+    lines.push(`| 최소 응시시간 | ${cfg.min_fixation_ms} ms |`);
+    lines.push(`| px/deg | ${mdCell(cfg.px_per_deg)} |`);
+    lines.push(`| AOI | ${cfg.aois.map((a) => a.name).join(', ')} |`);
+    lines.push('');
+    lines.push('## 2. 데이터 품질');
+    lines.push('');
+    lines.push('| 지표 | 값 | 경계 |');
+    lines.push('| --- | --- | --- |');
+    lines.push(`| 유효 시선 비율 | ${(q.validRatio * 100).toFixed(2)}% | derived |`);
+    lines.push(`| 결측 좌표 비율 | ${(q.missingRatio * 100).toFixed(2)}% | derived |`);
+    lines.push(`| 추정 샘플링 | ${q.hz ? `${q.hz.toFixed(1)} Hz` : '—'} | derived |`);
+    if (bundle.rgb_filter) {
+      lines.push(`| RGB 제외 | ${bundle.rgb_filter.excluded_samples.toLocaleString('ko-KR')} 샘플 (${(bundle.rgb_filter.excluded_ratio * 100).toFixed(2)}%) | derived |`);
+    }
+    if (q.warnings && q.warnings.length) {
+      lines.push('');
+      lines.push('**경고**');
+      lines.push('');
+      q.warnings.forEach((w) => lines.push(`- ${w}`));
+    }
+    lines.push('');
+    lines.push('## 3. 응시·도약 요약 (recording 평균)');
+    lines.push('');
+    lines.push('| 지표 | 값 | 단위 | 경계 |');
+    lines.push('| --- | --- | --- | --- |');
+    lines.push(`| 응시 횟수 | ${mdCell(s.fixation.count, 1)} | count | derived |`);
+    lines.push(`| 평균 응시시간 | ${mdCell(s.fixation.mean_ms, 1)} | ms | derived |`);
+    lines.push(`| 도약 횟수 | ${mdCell(s.saccade.count, 1)} | count | derived |`);
+    lines.push(`| 도약 평균 진폭 | ${mdCell(s.saccade.mean_amplitude_deg, 2)} | degree | derived |`);
+    lines.push('');
+    lines.push('## 4. AOI 지표 (조건 평균)');
+    lines.push('');
+    lines.push('| 조건 | AOI | 체류(ms) | 비율(%) | 방문 | TTFF(ms) |');
+    lines.push('| --- | --- | --- | --- | --- | --- |');
+    bundle.aoi.forEach((aoi) => {
+      Object.entries(aoi.conditions).forEach(([condition, row]) => {
+        lines.push(`| ${mdCell(condition)} | ${mdCell(aoi.name)} | ${mdCell(row.dwell_ms, 1)} | ${mdCell(row.dwell_ratio * 100, 2)} | ${mdCell(row.visits, 1)} | ${mdCell(row.ttff_ms, 1)} |`);
+      });
+    });
+    lines.push('');
+    lines.push('## 5. AOI 전이와 시선 엔트로피');
+    lines.push('');
+    if (t) {
+      lines.push(`- AOI 안 응시 **${t.pooled.n_fixations}** · 전이 **${t.pooled.n_transitions}** · 방문 AOI **${t.pooled.visited_aois}/${t.aois.length}**`);
+      lines.push(`- 정지 엔트로피 **${mdCell(t.pooled.stationary_entropy_bits, 3)} bits** · 전이 엔트로피 **${mdCell(t.pooled.transition_entropy_bits, 3)} bits** (정규화 ${mdCell(t.pooled.stationary_entropy_normalized, 3)} · ${mdCell(t.pooled.transition_entropy_normalized, 3)})`);
+      lines.push('');
+      lines.push(`| from \\ to | ${t.aois.map(mdCell).join(' | ')} |`);
+      lines.push(`| --- | ${t.aois.map(() => '---').join(' | ')} |`);
+      t.probabilities.forEach((row, i) => {
+        lines.push(`| ${mdCell(t.aois[i])} → | ${row.map((v) => mdCell(v, 3)).join(' | ')} |`);
+      });
+      lines.push('');
+      lines.push('| 조건 | 전이 수 | 정지 엔트로피(bits) | 전이 엔트로피(bits) | 전이 정규화 |');
+      lines.push('| --- | --- | --- | --- | --- |');
+      t.by_condition.forEach((row) => {
+        lines.push(`| ${mdCell(row.condition)} | ${row.n_transitions} | ${mdCell(row.stationary_entropy_bits, 3)} | ${mdCell(row.transition_entropy_bits, 3)} | ${mdCell(row.transition_entropy_normalized, 3)} |`);
+      });
+      lines.push('');
+      lines.push(t.note);
+    } else {
+      lines.push('_(AOI 전이 없음)_');
+    }
+    lines.push('');
+    lines.push('## 6. 조건 간 비교 (기술통계 · Cohen\'s d)');
+    lines.push('');
+    const conditions = s.conditions;
+    const metrics = [
+      ['응시 횟수', (p) => p.fixation_count, 1],
+      ['평균 응시(ms)', (p) => p.fixation_mean_ms, 0],
+      ['도약 횟수', (p) => p.saccade_count, 1],
+      ['도약 진폭(°)', (p) => p.saccade_amplitude_mean_deg, 2],
+      ['정지 엔트로피(bits)', (p) => p.aoi_stationary_entropy_bits, 3],
+      ['전이 엔트로피(bits)', (p) => p.aoi_transition_entropy_bits, 3],
+    ];
+    if (conditions.length >= 2) {
+      const [a, b] = conditions;
+      const listA = bundle.participants.filter((p) => p.condition === a);
+      const listB = bundle.participants.filter((p) => p.condition === b);
+      lines.push(`| 지표 | ${mdCell(a)} (n=${listA.length}) | ${mdCell(b)} (n=${listB.length}) | Cohen's d |`);
+      lines.push('| --- | --- | --- | --- |');
+      metrics.forEach(([label, get, digits]) => {
+        const va = listA.map(get);
+        const vb = listB.map(get);
+        lines.push(`| ${label} | ${mdCell(mean(va), digits)} | ${mdCell(mean(vb), digits)} | ${mdCell(cohensD(va, vb), 2)} |`);
+      });
+      lines.push('');
+      lines.push('웹 워크벤치는 기술통계와 Cohen\'s d를 보여 줍니다. p-value·정규성 판정·Holm 보정이 포함된 추론 통계는 Python 엔진(`gazera analyze`)의 보고서를 쓰세요.');
+    } else {
+      lines.push('_(조건이 2개 이상이어야 비교합니다)_');
+    }
+    lines.push('');
+    lines.push('## 7. 지표 정의 · 근거 · 경계');
+    lines.push('');
+    lines.push('| 구분 | 지표 | 단위 | 수식 | 경계 |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    METHODOLOGY.forEach((item) => {
+      lines.push(`| ${item.kind} | ${mdCell(item.label)} | ${mdCell(item.unit)} | ${mdCell(item.formula)} | ${mdCell(item.boundary)} |`);
+    });
+    lines.push('');
+    Object.values(BOUNDARIES).forEach((item) => lines.push(`- **${item.label}** — ${item.text}`));
+    lines.push('');
+    lines.push('### 참고문헌');
+    lines.push('');
+    Object.values(REFERENCES).forEach((ref) => lines.push(`- ${ref}`));
+    lines.push('');
+    lines.push('## 8. 고지와 인용');
+    lines.push('');
+    lines.push('- 데이터: 합성 데모는 100% 자체 생성이며 실제 피험자 정보가 없습니다. 업로드한 파일은 브라우저 안에서만 처리됩니다.');
+    lines.push('- 라이선스: MIT License · Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University.');
+    lines.push('- GAZERA는 Tobii AB와 제휴·후원·보증 관계가 없는 독립 오픈소스 프로젝트입니다. 모든 제품명·상표는 각 소유자에게 있습니다.');
+    lines.push('');
+    lines.push(`> FEI · HEL Lab (2026). GAZERA: Intelligent Eye-Tracking Data Analytics (Version ${VERSION}) [Computer software]. Gyeongsang National University. MIT License.`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  function exportMd() {
+    if (!state.analysis) return;
+    download(`gazera_report_${dateStamp()}.md`, markdownReport(), 'text/markdown;charset=utf-8');
+    toast('Markdown 분석 보고서를 내려받았습니다.');
   }
 
   function dateStamp() {
@@ -2194,9 +2672,10 @@
       const excluded = state.rgb.enabled ? state.rgb.excluded : EMPTY_SET;
       const { segments, pxPerDeg } = classifyIvt(state.frame, config, excluded);
       const participants = computeMetrics(state.frame, segments, aois, pxPerDeg);
+      const transitions = computeTransitions(segments, aois, state.frame.screen);
       const conditions = Array.from(new Set(participants.map((p) => p.condition)));
       const base = state.rgb.enabled ? baselineAnalysis(config, aois) : null;
-      state.analysis = { segments, participants, aois, conditions, pxPerDeg, config, base, excludedSize: excluded.size };
+      state.analysis = { segments, participants, aois, conditions, pxPerDeg, config, base, excludedSize: excluded.size, transitions };
 
       $('resultCount').textContent = `${participants.length} recordings · ${segments.filter((s) => s.type === 'fixation').length.toLocaleString('ko-KR')} fixations`;
       const rgbNote = state.rgb.enabled
@@ -2209,12 +2688,14 @@
       renderAoiTable();
       renderStatsTable();
       renderParticipantsTable();
+      renderTransitions();
       renderPreviewSelectors();
       renderRgbSummary();
       renderRgbCompare(base, state.analysis);
       drawCanvas();
       $('dlCsv').disabled = false;
       $('dlJson').disabled = false;
+      if ($('dlMd')) $('dlMd').disabled = false;
       $('runBtn').disabled = false;
     } catch (err) {
       console.error(err);
@@ -2369,6 +2850,7 @@
 
     $('dlCsv').addEventListener('click', downloadCsv);
     $('dlJson').addEventListener('click', downloadJson);
+    if ($('dlMd')) $('dlMd').addEventListener('click', exportMd);
 
     /* --- stimulus upload + RGB filter ---------------------------------- */
     const stimInput = $('stimInput');
@@ -2502,6 +2984,7 @@
     bind();
     initRgb();
     renderAoiEditor(BANDS);
+    renderMethodology();
     try {
       loadDemo();
     } catch (err) {
@@ -2511,4 +2994,19 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  // exposed for verification in the live page
+  window.GAZERA = {
+    version: VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    state,
+    loadDemo,
+    runAnalysis,
+    computeMetrics,
+    computeTransitions,
+    entropyStatsFromLabels,
+    buildBundle,
+    markdownReport,
+    methodology: METHODOLOGY,
+  };
 })();
