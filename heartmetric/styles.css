@@ -988,9 +988,12 @@ a { color: inherit; }
   border-collapse: separate;
   border-spacing: 3px;
   font-size: 10.5px;
-  min-width: 100%;
+  width: auto;
+  min-width: 0;
 }
 .gap-table th.gap-rowhead {
+  width: 200px;
+  max-width: 200px;
   text-align: left;
   font-weight: 600;
   font-size: 11px;
@@ -1019,10 +1022,11 @@ a { color: inherit; }
   padding: 0 1px 4px;
   text-align: center;
   white-space: nowrap;
+  min-width: 26px;
 }
 .gap-table td.gap-cell {
   width: 26px;
-  min-width: 20px;
+  min-width: 26px;
   height: 22px;
   padding: 0;
   text-align: center;
@@ -1053,3 +1057,5 @@ a { color: inherit; }
   .gap-streams { columns: 1; }
   .gap-table td.gap-cell { width: 20px; min-width: 16px; height: 20px; }
 }
+
+.effect-tag { white-space: nowrap; }
