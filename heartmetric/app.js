@@ -2384,14 +2384,22 @@
       return;
     }
     const summary = conditionSummary(state.rows, ['pm25', 'temp_c', 'humidity_pct', 'green_index', 'forest']);
+    const forestLabel = (row) => {
+      if (!Number.isFinite(row.forest)) return '—';
+      const flags = values(state.rows.filter((r) => (r.condition || '(unlabelled)') === row.condition), 'forest');
+      const allForest = flags.length > 0 && flags.every((v) => v >= 0.5);
+      const allUrban = flags.length > 0 && flags.every((v) => v < 0.5);
+      if (!allForest && !allUrban) return '혼합';
+      return allForest ? '숲' : '도시';
+    };
     tbody.innerHTML = summary.map((row) => `<tr>
-      <td class="metric-name">${row.condition}</td>
+      <td class="metric-name">${escapeHtml(row.condition)}</td>
       <td>${row.n}</td>
       <td>${fmt(row.pm25, 1)}</td>
       <td>${fmt(row.temp_c, 1)}</td>
       <td>${fmt(row.humidity_pct, 0)}</td>
       <td>${fmt(row.green_index, 2)}</td>
-      <td>${Number.isFinite(row.forest) ? (row.forest >= 0.5 ? '숲' : '도시') : '—'}</td>
+      <td>${forestLabel(row)}</td>
     </tr>`).join('');
   }
 
