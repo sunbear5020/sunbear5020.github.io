@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HEARTMETRIC v0.2 — Environmental Cardiovascular Response Platform · FEI · HEL Lab</title>
-<meta name="description" content="HEARTMETRIC v0.2은 커프 혈압(Apple Health)·웨어러블 심박/HRV(Oura·Apple Watch)·환경 노출(기온·PM2.5·녹지)을 시간 허용 오차로 결합하고, 피험자 대응표본 비교와 환경 상관(ρ·회귀)을 계산하는 연구용 오픈소스 워크벤치입니다. 100% 브라우저 실행, MIT License, FEI · HEL Lab.">
+<title>HEARTMETRIC v0.3 — Environmental Cardiovascular Response Platform · FEI · HEL Lab</title>
+<meta name="description" content="HEARTMETRIC v0.3은 커프 혈압(Apple Health)·웨어러블 심박/HRV(Oura·Apple Watch)·환경 노출(기온·PM2.5·녹지)을 시간 허용 오차나 야간→아침 프리셋으로 결합하고, 피험자 대응표본 비교·BH-FDR 다중 비교 보정·환경 상관·스트림 타임라인 갭 맵을 계산하는 연구용 오픈소스 워크벤치입니다. 100% 브라우저 실행, MIT License, FEI · HEL Lab.">
 <meta name="keywords" content="HEARTMETRIC, 혈압, HRV, 심박변이도, 산림치유, 도시숲, 환경노출, 시계열 결합, 대응표본, 오픈소스, 경상국립대학교, FEI HEL">
 <meta name="theme-color" content="#FAF9F5">
 <meta property="og:type" content="website">
-<meta property="og:title" content="HEARTMETRIC v0.2 — Where a pulse meets a place">
-<meta property="og:description" content="Cuff blood pressure × wearable HRV × environmental exposure, aligned by tolerance and analysed per subject. Clean-room MIT research workbench, 100% in-browser.">
+<meta property="og:title" content="HEARTMETRIC v0.3 — Where a pulse meets a place">
+<meta property="og:description" content="Cuff blood pressure × wearable HRV × environmental exposure, aligned by tolerance or the overnight→morning preset, with BH-FDR control and a date × stream gap map. Clean-room MIT research workbench, 100% in-browser.">
 <meta property="og:url" content="https://sunbear5020.github.io/heartmetric/">
 <meta property="og:site_name" content="HEARTMETRIC · FEI · HEL Lab">
 <link rel="canonical" href="https://sunbear5020.github.io/heartmetric/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141413'/%3E%3Cpath d='M6 17h4.2l2.1-5.4 3.1 10.2 2.4-6.1 1.7 2.6H26' fill='none' stroke='%23FAF9F5' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='26' cy='18.3' r='2.2' fill='%23D97757'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "HEARTMETRIC",
   "alternateName": "Environmental Cardiovascular Response Platform",
-  "softwareVersion": "0.2.0",
+  "softwareVersion": "0.3.0",
   "applicationCategory": "HealthApplication",
   "operatingSystem": "Web browser",
   "url": "https://sunbear5020.github.io/heartmetric/",
@@ -62,7 +62,7 @@
       <a href="#python">Python</a>
       <a href="#license">라이선스</a>
     </nav>
-    <span class="header-pill"><b>MIT</b> · v0.2.0</span>
+    <span class="header-pill"><b>MIT</b> · v0.3.0</span>
   </div>
 </header>
 
@@ -71,7 +71,7 @@
   <!-- hero ------------------------------------------------------------- -->
   <section class="hero">
     <div class="wrap">
-      <div class="eyebrow">Clean-room · vendor-neutral · open source · v0.2</div>
+      <div class="eyebrow">Clean-room · vendor-neutral · open source · v0.3</div>
       <h1>심박과 숲을,<br><em>하나의 표</em>로.</h1>
       <p class="lead">
         커프 혈압계의 <b>SBP / DBP</b>, 링·워치의 <b>심박과 HRV</b>,
@@ -140,6 +140,7 @@
               <option value="60">±60분</option>
               <option value="120">±120분</option>
               <option value="daily">일별 집계</option>
+              <option value="overnight_morning">야간(Oura) → 아침 커프</option>
             </select>
             <button class="btn bronze small" id="mergeBtn" type="button">스트림 결합</button>
           </div>
@@ -151,6 +152,7 @@
         <div class="btn-row">
           <button class="btn secondary small" id="demoBtn" type="button">데모 · 도시 vs 숲 14일</button>
           <button class="btn secondary small" id="cohortBtn" type="button">데모 · 코호트 6인</button>
+          <button class="btn secondary small" id="nightBtn" type="button">데모 · 야간→아침</button>
           <button class="btn ghost small" id="resetBtn" type="button">초기화</button>
         </div>
 
@@ -241,13 +243,13 @@
             <thead id="compareHead">
               <tr>
                 <th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th>
-                <th>Cohen's d</th><th>효과</th><th>p</th><th>95% CI</th>
+                <th>Cohen's d</th><th>효과</th><th>p</th><th>q (BH)</th><th>p (Holm)</th><th>95% CI</th>
               </tr>
             </thead>
-            <tbody><tr><td colspan="9" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr></tbody>
+            <tbody><tr><td colspan="11" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr></tbody>
           </table>
         </div>
-        <p class="table-foot">효과크기 기준: |d| &lt; 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 다중비교 보정 전 값입니다.</p>
+        <p class="table-foot">효과크기 기준: |d| &lt; 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 지표별 원값이며, 같은 표의 지표를 한 가족으로 본 q(BH-FDR)와 p(Holm)를 나란히 표시합니다.</p>
       </article>
 
       <!-- 04 charts ----------------------------------------------------- -->
@@ -292,6 +294,29 @@
         </div>
       </article>
 
+      <!-- gap map ------------------------------------------------------ -->
+      <article class="card span-12" id="gapmap">
+        <div class="card-head">
+          <span class="card-num">GAP</span>
+          <div>
+            <h2 class="card-title">스트림 타임라인 갭 맵</h2>
+            <p class="card-desc">일자×스트림 격자. 칸의 색은 그날 그 스트림의 결합 상태이고, 숫자는 그날 쓰인 행 수입니다. 칸에 마우스를 올리면 상태·행 수·피험자를 보여줍니다.</p>
+          </div>
+          <span class="card-head-note" id="gapMapScope">—</span>
+        </div>
+        <div class="gap-legend">
+          <span class="gap-key"><i class="gap-swatch gap-matched"></i>매칭</span>
+          <span class="gap-key"><i class="gap-swatch gap-partial"></i>부분</span>
+          <span class="gap-key"><i class="gap-swatch gap-unmatched"></i>미결합</span>
+          <span class="gap-key"><i class="gap-swatch gap-missing"></i>결측</span>
+          <span class="gap-key muted">결측은 메우지 않고 그대로 보여줍니다.</span>
+        </div>
+        <div class="gap-grid" id="gapGrid">
+          <p class="muted">파일을 2개 이상 올리고 결합하면 일자×스트림 갭 맵이 표시됩니다.</p>
+        </div>
+        <div class="gap-summary" id="gapSummary"></div>
+      </article>
+
       <!-- 05 export ----------------------------------------------------- -->
       <article class="card span-6">
         <div class="card-head">
@@ -308,8 +333,8 @@
         </div>
         <ul class="export-list">
           <li><b>CSV</b> — QC를 통과한 표준 테이블(subject_id 포함, UTF-8 BOM)</li>
-          <li><b>JSON</b> — <code>schema_version 0.2.0</code> · 파라미터 · 정렬 보고 · 비교 · 상관 · 지표 정의</li>
-          <li><b>Markdown</b> — 6장 리포트: 품질 · 요약 · 비교 · 상관 · 조건별 평균 · 지표 정의와 경계</li>
+          <li><b>JSON</b> — <code>schema_version 0.3.0</code> · 정렬 보고 · 갭 맵 · BH-FDR q · 비교 · 상관 · 지표 정의</li>
+          <li><b>Markdown</b> — 7장 리포트: 품질 · 요약 · 비교(q · p_holm) · 상관 · <b>갭 맵</b> · 조건별 평균 · 지표 정의와 경계</li>
           <li>Python 엔진은 같은 정의로 <b>.xlsx</b> 다중 시트 보고서까지 만듭니다.</li>
         </ul>
       </article>
@@ -384,7 +409,7 @@ exporter.to_markdown(bundle, <span class="s">"report.md"</span>)</code></pre>
   -i bp.csv -i oura.json -i env.csv \
   --merge --tolerance-minutes 30 \
   -o report.md</code></pre>
-            <p class="muted"><b id="testCount">87</b>개 pytest · GitHub Actions CI · NumPy/Pandas 외 의존성 없음(통계 자체 구현)</p>
+            <p class="muted"><b id="testCount">124</b>개 pytest · GitHub Actions CI · NumPy/Pandas 외 의존성 없음(통계 자체 구현)</p>
             <p class="muted">합성 데모는 화면에서 자체 시드로 생성되므로 Python 데모와 소수점 단위에서 조금 다를 수 있습니다. 같은 파일·같은 허용 오차를 넣으면 두 경로의 계산 정의는 동일합니다.</p>
             <a class="link-btn" href="https://github.com/sunbear5020/heartmetric" target="_blank" rel="noopener">저장소 보기 ↗</a>
           </div>
@@ -405,7 +430,7 @@ exporter.to_markdown(bundle, <span class="s">"report.md"</span>)</code></pre>
         </p>
         <p class="cite">
           FEI · HEL Lab, Gyeongsang National University. (2026).<br>
-          HEARTMETRIC: Environmental Cardiovascular Response Platform (v0.2.0) [Software].
+          HEARTMETRIC: Environmental Cardiovascular Response Platform (v0.3.0) [Software].
         </p>
       </div>
       <div>
@@ -437,7 +462,7 @@ exporter.to_markdown(bundle, <span class="s">"report.md"</span>)</code></pre>
       </span>
       <div>
         <p class="footer-name">HEARTMETRIC</p>
-        <p class="muted">Environmental Cardiovascular Response Platform · v0.2.0</p>
+        <p class="muted">Environmental Cardiovascular Response Platform · v0.3.0</p>
       </div>
     </div>
     <div class="footer-meta">
@@ -450,6 +475,6 @@ exporter.to_markdown(bundle, <span class="s">"report.md"</span>)</code></pre>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

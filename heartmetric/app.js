@@ -1,5 +1,5 @@
 /* =============================================================================
-   HEARTMETRIC — browser workbench · v0.2.0
+   HEARTMETRIC — browser workbench · v0.3.0
    Clean-room, MIT · FEI · HEL Lab, Gyeongsang National University
    -----------------------------------------------------------------------------
    Everything here runs locally in the browser. No network calls, no uploads.
@@ -9,19 +9,25 @@
      loader   → parseDelimited / mapHeaders / standardize / parseTime
      cleaner  → cleanRows
      metrics  → addDerived / environmentalLoad / dipping / hrvRecovery / stressIndex
-     align    → alignStreams (greedy nearest match, daily aggregation)
+     align    → alignStreams (greedy nearest match, daily aggregation,
+                overnight_morning: morning cuff anchor + one-sided night look-back)
+                + buildTimelineGapMap (date × stream matched/partial/unmatched/missing)
      stats    → welch / pairedT / cohensDz / permutationP / signTest / subjectPairs
+                + benjaminiHochberg / holmBonferroni (one family per table)
      corr     → pearson / spearman / olsRegression
-     export   → buildBundle (schema 0.2.0) / markdownReport / cleaned CSV
+     export   → buildBundle (schema 0.3.0) / markdownReport / cleaned CSV
 
    The demonstration series is generated in this file (100 % synthetic).
    ========================================================================== */
 (() => {
   'use strict';
 
-  const VERSION = '0.2.0';
-  const SCHEMA_VERSION = '0.2.0';
+  const VERSION = '0.3.0';
+  const SCHEMA_VERSION = '0.3.0';
   const NIGHT = { start: 22, end: 6 };
+  const OVERNIGHT_LOOKBACK_HOURS = 14;
+  const MORNING_WINDOW = [5, 12];
+  const MATCH_LOG_LIMIT = 500;
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -954,9 +960,10 @@
 
   function compareTable(rows, metrics, groupA, groupB, paired) {
     const out = [];
-    if (!groupA || !groupB || groupA === groupB) return { rows: out, mode: 'unpaired', nSubjects: 0, note: '' };
+    if (!groupA || !groupB || groupA === groupB) return { rows: out, mode: 'unpaired', nSubjects: 0, note: '', multiple: { family_size: 0 } };
     const pairedSubjects = paired ? countSubjectsInBoth(rows, groupA, groupB) : 0;
     const mode = !paired ? 'unpaired' : pairedSubjects >= 2 ? 'subject' : 'row';
+    const rawP = [];
     let note = '';
     if (paired && mode === 'row') {
       note = pairedSubjects === 1
@@ -987,6 +994,7 @@
         }
       }
       if (!result) return;
+      rawP.push(result.p);
       out.push({
         metric,
         meanA: result.meanA,
@@ -1007,7 +1015,64 @@
         test: result.test,
       });
     });
-    return { rows: out, mode, nSubjects: pairedSubjects, note };
+    // The metrics of one table were tested together, so they are one family:
+    // raw p is shown beside the BH-FDR q and the Holm-adjusted p, never instead.
+    const qBH = benjaminiHochberg(rawP);
+    const pHolm = holmBonferroni(rawP);
+    out.forEach((row, index) => {
+      row.qBH = qBH[index];
+      row.pHolm = pHolm[index];
+      row.sigFDR = Number.isFinite(row.qBH) && row.qBH <= 0.05;
+      row.sigHolm = Number.isFinite(row.pHolm) && row.pHolm <= 0.05;
+    });
+    const multiple = multipleComparisonSummary(rawP, out);
+    return { rows: out, mode, nSubjects: pairedSubjects, note, multiple };
+  }
+
+  /* ------------------------------------------- multiple comparison control */
+  function benjaminiHochberg(pValues) {
+    const out = new Array(pValues.length).fill(NaN);
+    const valid = [];
+    pValues.forEach((p, index) => { if (Number.isFinite(p)) valid.push([p, index]); });
+    const m = valid.length;
+    if (!m) return out;
+    valid.sort((a, b) => a[0] - b[0]);
+    let running = 1;
+    for (let i = m - 1; i >= 0; i -= 1) {
+      running = Math.min(running, (valid[i][0] * m) / (i + 1));
+      valid[i][2] = clamp(running, 0, 1);
+    }
+    valid.forEach(([, index, value]) => { out[index] = value; });
+    return out;
+  }
+
+  function holmBonferroni(pValues) {
+    const out = new Array(pValues.length).fill(NaN);
+    const valid = [];
+    pValues.forEach((p, index) => { if (Number.isFinite(p)) valid.push([p, index]); });
+    const m = valid.length;
+    if (!m) return out;
+    valid.sort((a, b) => a[0] - b[0]);
+    let running = 0;
+    valid.forEach(([p], i) => {
+      running = Math.max(running, p * (m - i));
+      valid[i][2] = clamp(running, 0, 1);
+    });
+    valid.forEach(([, index, value]) => { out[index] = value; });
+    return out;
+  }
+
+  function multipleComparisonSummary(pValues, rows) {
+    const family = pValues.filter((p) => Number.isFinite(p)).length;
+    return {
+      method: 'benjamini_hochberg',
+      family: 'metrics compared between the two conditions of this table',
+      family_size: family,
+      alpha: 0.05,
+      tests_unavailable: pValues.length - family,
+      rejected_bh_fdr: rows.filter((row) => row.sigFDR).length,
+      rejected_holm_fw: rows.filter((row) => row.sigHolm).length,
+    };
   }
 
   /* ------------------------------------------------------------ correlation */
@@ -1277,7 +1342,7 @@
     return existing ? `${existing}|${code}` : code;
   }
 
-  function alignStreams(streams, toleranceMinutes, mode = 'tolerance') {
+  function alignStreams(streams, toleranceMinutes, mode = 'tolerance', options = {}) {
     const prepared = streams.map((stream, index) => ({
       name: streamName(stream, index),
       role: roleOf(stream.rows),
@@ -1286,6 +1351,7 @@
     if (!prepared.length) return { rows: [], report: null };
     const anchor = prepared.find((s) => s.role === 'bp') || prepared[0];
     if (mode === 'daily') return alignDaily(prepared);
+    if (mode === 'overnight_morning') return alignOvernight(prepared, anchor, options);
 
     const records = [];
     prepared.forEach((stream) => {
@@ -1375,12 +1441,17 @@
 
     const streamReports = prepared.map((stream) => {
       let matchedRows = 0;
+      const byDate = {};
       records.forEach((row, index) => {
         if (row.__stream !== stream.name) return;
+        const date = dayKey(row.timestamp);
+        const cell = byDate[date] || (byDate[date] = { rows: 0, matched: 0 });
+        cell.rows += 1;
         if (row.__role === anchor.role && anchorIndexes.includes(index)) {
-          if (partners.get(index).length) matchedRows += 1;
+          if (partners.get(index).length) { matchedRows += 1; cell.matched += 1; }
         } else if (row.__assigned) {
           matchedRows += 1;
+          cell.matched += 1;
         }
       });
       return {
@@ -1390,6 +1461,7 @@
         matched_rows: matchedRows,
         unmatched_rows: stream.rows.length - matchedRows,
         match_rate_pct: stream.rows.length ? Math.round(matchedRows / stream.rows.length * 1000) / 10 : 0,
+        by_date: byDate,
       };
     });
 
@@ -1416,11 +1488,258 @@
     };
   }
 
+  function inHourWindow(date, window) {
+    const value = toDate(date);
+    if (!value) return false;
+    const hour = value.getHours() + value.getMinutes() / 60 + value.getSeconds() / 3600;
+    const [start, end] = window;
+    if (start <= end) return hour >= start && hour < end;
+    return hour >= start || hour < end;
+  }
+
+  function lagSummary(lags) {
+    const values = lags.filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
+    if (!values.length) return { n: 0 };
+    const total = values.reduce((sum, v) => sum + v, 0);
+    const middle = values.length % 2
+      ? values[(values.length - 1) / 2]
+      : (values[values.length / 2 - 1] + values[values.length / 2]) / 2;
+    return {
+      n: values.length,
+      min: round(values[0], 1),
+      median: round(middle, 1),
+      mean: round(total / values.length, 1),
+      max: round(values[values.length - 1], 1),
+      unit: 'minutes before the anchor (look-back only)',
+    };
+  }
+
+  function alignOvernight(prepared, anchor, options = {}) {
+    const lookbackHours = Number.isFinite(Number(options.overnightLookbackHours))
+      ? Number(options.overnightLookbackHours) : OVERNIGHT_LOOKBACK_HOURS;
+    const window = Array.isArray(options.morningWindow) ? options.morningWindow : MORNING_WINDOW;
+    const lookbackMs = lookbackHours * 3600000;
+    const records = [];
+    prepared.forEach((stream) => {
+      stream.rows.forEach((row) => {
+        records.push({ ...row, __stream: stream.name, __role: stream.role, __assigned: false });
+      });
+    });
+    const anchorIndexes = [];
+    const outsideIndexes = [];
+    records.forEach((row, index) => {
+      if (row.__role !== anchor.role) return;
+      if (inHourWindow(row.timestamp, window)) anchorIndexes.push(index);
+      else outsideIndexes.push(index);
+    });
+    const anchorSet = new Set(anchorIndexes);
+    const knownSubjects = new Set(records.map((r) => r[SUBJECT]).filter(Boolean));
+    const singleSubject = knownSubjects.size <= 1;
+    const compatible = (left, right) => {
+      const a = left[SUBJECT] || '';
+      const b = right[SUBJECT] || '';
+      if (a && b) return a === b;
+      if (a || b) return singleSubject;
+      return true;
+    };
+    const roles = [...new Set(records.map((r) => r.__role))].filter((role) => role !== anchor.role);
+    roles.sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+    const partners = new Map();
+    anchorIndexes.forEach((index) => partners.set(index, []));
+    const warnings = [];
+    let unlabelledJoins = 0;
+
+    roles.forEach((role) => {
+      const candidates = [];
+      records.forEach((row, index) => {
+        if (row.__role !== role || row.__assigned) return;
+        anchorIndexes.forEach((anchorIndex) => {
+          const anchorRow = records[anchorIndex];
+          if (!compatible(anchorRow, row)) return;
+          const lag = anchorRow.timestamp - row.timestamp;
+          // One-sided: a reading after the cuff is never pulled back onto it.
+          if (lag >= 0 && lag <= lookbackMs) candidates.push([lag, anchorIndex, index]);
+        });
+      });
+      candidates.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
+      const takenAnchor = new Set();
+      candidates.forEach(([lag, anchorIndex, index]) => {
+        if (takenAnchor.has(anchorIndex) || records[index].__assigned) return;
+        partners.get(anchorIndex).push(index);
+        takenAnchor.add(anchorIndex);
+        records[index].__assigned = true;
+        records[index].__lagMinutes = Math.round((lag / 60000) * 10) / 10;
+        if (!(records[anchorIndex][SUBJECT] && records[index][SUBJECT])) unlabelledJoins += 1;
+      });
+    });
+
+    const out = [];
+    let matched = 0;
+    let multi = 0;
+    const matches = [];
+    const lags = [];
+    const rolesByAnchor = new Map();
+    anchorIndexes.forEach((anchorIndex) => {
+      const anchorRow = records[anchorIndex];
+      const base = stripInternal(anchorRow);
+      const partnerIndexes = partners.get(anchorIndex);
+      rolesByAnchor.set(anchorIndex, partnerIndexes.map((i) => records[i].__role));
+      if (partnerIndexes.length) {
+        matched += 1;
+        partnerIndexes.forEach((i) => {
+          coalesce(base, stripInternal(records[i]));
+          const lag = records[i].__lagMinutes;
+          lags.push(lag);
+          if (matches.length < MATCH_LOG_LIMIT) {
+            matches.push({
+              subject_id: base[SUBJECT] || null,
+              anchor: fmtStamp(anchorRow.timestamp),
+              stream: records[i].__stream,
+              role: records[i].__role,
+              observed_at: fmtStamp(records[i].timestamp),
+              lag_minutes: lag,
+            });
+          }
+        });
+      }
+      const names = [anchorRow.__stream]
+        .concat(partnerIndexes.map((i) => records[i].__stream))
+        .filter((value, i, list) => list.indexOf(value) === i);
+      base.source = names.join('+');
+      base.flags = addFlag(base.flags, `align:${names.join('+')}`);
+      base.flags = addFlag(base.flags, 'align:overnight_morning');
+      if (!partnerIndexes.length) base.flags = addFlag(base.flags, 'align_unmatched');
+      if (new Set(rolesByAnchor.get(anchorIndex)).size > 1 || partnerIndexes.length > 1) multi += 1;
+      out.push(base);
+    });
+
+    const unmatched = [];
+    const unmatchedReasons = {};
+    anchorIndexes.forEach((anchorIndex) => {
+      const anchorRow = records[anchorIndex];
+      const have = new Set(partners.get(anchorIndex).map((i) => records[i].__role));
+      roles.forEach((role) => {
+        if (have.has(role)) return;
+        const roleRows = records.filter((row) => row.__role === role);
+        const sameSubject = roleRows.filter((row) => compatible(anchorRow, row));
+        let inWindow = false;
+        let afterOnly = false;
+        sameSubject.forEach((row) => {
+          const delta = anchorRow.timestamp - row.timestamp;
+          if (delta >= 0 && delta <= lookbackMs) inWindow = true;
+          else if (delta < 0 && -delta <= lookbackMs) afterOnly = true;
+        });
+        let reason;
+        if (inWindow) reason = 'already_matched_to_another_anchor';
+        else if (afterOnly) reason = 'only_after_anchor';
+        else if (!roleRows.length) reason = 'stream_not_present';
+        else if (!sameSubject.length) reason = 'no_row_for_this_subject';
+        else reason = 'outside_lookback_window';
+        const key = `${role}:${reason}`;
+        unmatchedReasons[key] = (unmatchedReasons[key] || 0) + 1;
+        if (unmatched.length < MATCH_LOG_LIMIT) {
+          unmatched.push({
+            subject_id: anchorRow[SUBJECT] || null,
+            anchor: fmtStamp(anchorRow.timestamp),
+            role,
+            reason,
+          });
+        }
+      });
+    });
+
+    outsideIndexes.forEach((index) => {
+      const row = records[index];
+      const base = stripInternal(row);
+      base.source = row.__stream;
+      base.flags = addFlag(base.flags, `align:${row.__stream}`);
+      base.flags = addFlag(base.flags, 'align:overnight_morning');
+      base.flags = addFlag(base.flags, 'align_outside_morning_window');
+      base.flags = addFlag(base.flags, 'align_unmatched');
+      out.push(base);
+    });
+
+    records.forEach((row, index) => {
+      if (row.__role === anchor.role || row.__assigned) return;
+      const base = stripInternal(row);
+      base.source = row.__stream;
+      base.flags = addFlag(base.flags, `align:${row.__stream}`);
+      base.flags = addFlag(base.flags, 'align:overnight_morning');
+      base.flags = addFlag(base.flags, 'align_unmatched');
+      out.push(base);
+    });
+
+    const streamReports = prepared.map((stream) => {
+      let matchedRows = 0;
+      const byDate = {};
+      records.forEach((row, index) => {
+        if (row.__stream !== stream.name) return;
+        const date = dayKey(row.timestamp);
+        const cell = byDate[date] || (byDate[date] = { rows: 0, matched: 0 });
+        cell.rows += 1;
+        if (row.__assigned) {
+          matchedRows += 1;
+          cell.matched += 1;
+        } else if (row.__role === anchor.role && anchorSet.has(index) && (partners.get(index) || []).length) {
+          matchedRows += 1;
+          cell.matched += 1;
+        }
+      });
+      return {
+        name: stream.name,
+        role: stream.role,
+        rows: stream.rows.length,
+        matched_rows: matchedRows,
+        unmatched_rows: stream.rows.length - matchedRows,
+        match_rate_pct: stream.rows.length ? Math.round(matchedRows / stream.rows.length * 1000) / 10 : 0,
+        by_date: byDate,
+      };
+    });
+
+    if (!anchorIndexes.length) {
+      warnings.push(`0${window[0]}:00–${window[1]}:00 안에 ${anchor.role === 'bp' ? '커프 혈압' : anchor.role} 행이 없어 앵커를 만들지 못했습니다.`);
+    }
+    if (unlabelledJoins) warnings.push(`${unlabelledJoins}개 행에 subject_id가 없어 단일 피험자로 결합했습니다.`);
+    if (outsideIndexes.length) {
+      warnings.push(`${outsideIndexes.length}개 ${anchor.role} 행이 아침 창 밖이라 별도 행으로 유지했습니다(align_outside_morning_window).`);
+    }
+
+    out.sort((a, b) => String(a[SUBJECT] || '').localeCompare(String(b[SUBJECT] || '')) || a.timestamp - b.timestamp);
+    return {
+      rows: out,
+      report: {
+        mode: 'overnight_morning',
+        preset: 'overnight_morning',
+        tolerance_minutes: Math.round(lookbackHours * 60 * 10) / 10,
+        anchor: anchor.role,
+        subject_column: SUBJECT,
+        streams: streamReports,
+        rows_in: records.length,
+        rows_out: out.length,
+        anchors: anchorIndexes.length,
+        anchors_matched: matched,
+        match_rate_pct: anchorIndexes.length ? Math.round(matched / anchorIndexes.length * 1000) / 10 : 0,
+        rows_with_multiple_streams: multi,
+        warnings,
+        overnight_lookback_hours: lookbackHours,
+        morning_window: window,
+        anchors_outside_window: outsideIndexes.length,
+        lag_minutes: lagSummary(lags),
+        matches,
+        matches_truncated: lags.length > MATCH_LOG_LIMIT,
+        unmatched,
+        unmatched_reasons: unmatchedReasons,
+      },
+    };
+  }
+
   function alignDaily(prepared) {
     const merged = new Map();
     const order = [];
+    const countsByStream = new Map();
+    const joinedByStream = new Map();
     const streamReports = prepared.map((stream) => ({
-      name: stream.name, role: stream.role, rows: 0, matched_rows: 0, unmatched_rows: 0, match_rate_pct: null,
+      name: stream.name, role: stream.role, rows: stream.rows.length, matched_rows: 0, unmatched_rows: 0, match_rate_pct: null,
     }));
     prepared.forEach((stream) => {
       const buckets = new Map();
@@ -1430,9 +1749,10 @@
         if (!buckets.has(key)) buckets.set(key, []);
         buckets.get(key).push(row);
       });
-      const entry = streamReports.find((item) => item.name === stream.name);
-      if (entry) entry.rows = buckets.size;
+      const counts = countsByStream.get(stream.name) || {};
       buckets.forEach((group, key) => {
+        const date = key.split('||')[1];
+        counts[date] = (counts[date] || 0) + group.length;
         if (!merged.has(key)) {
           const [subject, date] = key.split('||');
           merged.set(key, {
@@ -1457,6 +1777,7 @@
         coalesce(target, averaged);
         target.__streams.push(stream.name);
       });
+      countsByStream.set(stream.name, counts);
     });
     let multi = 0;
     const out = order.map((key) => {
@@ -1470,11 +1791,32 @@
       row.__names = names;
       return row;
     });
+    // A day is joined for a stream when that stream's rows of the day went into
+    // an output row that also carries another stream. Input rows stay the unit.
+    out.forEach((row) => {
+      const names = row.__names || [];
+      if (names.length < 2) return;
+      const date = dayKey(row.timestamp);
+      names.forEach((name) => {
+        const joined = joinedByStream.get(name) || {};
+        joined[date] = true;
+        joinedByStream.set(name, joined);
+      });
+    });
     out.sort((a, b) => String(a[SUBJECT] || '').localeCompare(String(b[SUBJECT] || '')) || a.timestamp - b.timestamp);
     streamReports.forEach((entry) => {
-      const count = out.filter((row) => (row.__names || []).includes(entry.name)).length;
-      entry.matched_rows = count;
-      entry.unmatched_rows = entry.rows - count;
+      const counts = countsByStream.get(entry.name) || {};
+      const joined = joinedByStream.get(entry.name) || {};
+      const byDate = {};
+      let matchedRows = 0;
+      Object.keys(counts).forEach((date) => {
+        byDate[date] = { rows: counts[date], matched: joined[date] ? counts[date] : 0 };
+        matchedRows += byDate[date].matched;
+      });
+      entry.by_date = byDate;
+      entry.matched_rows = matchedRows;
+      entry.unmatched_rows = entry.rows - matchedRows;
+      entry.match_rate_pct = entry.rows ? Math.round(matchedRows / entry.rows * 1000) / 10 : 0;
     });
     out.forEach((row) => { delete row.__names; });
     return {
@@ -1493,6 +1835,163 @@
         rows_with_multiple_streams: multi,
         warnings: ['일별 집계는 피험자·날짜별 평균으로 결합했습니다.'],
       },
+    };
+  }
+
+  function isoDatesBetween(first, last, maxDays = 1000) {
+    const out = [];
+    const start = new Date(`${first}T00:00:00`);
+    const end = new Date(`${last}T00:00:00`);
+    for (let stamp = start; stamp <= end; stamp = new Date(stamp.getTime() + 86400000)) {
+      out.push(fmtDate(stamp));
+      if (out.length > maxDays * 4) break;
+    }
+    return out;
+  }
+
+  function dateRuns(dates) {
+    const runs = [];
+    let previous = null;
+    dates.forEach((value) => {
+      const stamp = new Date(`${value}T00:00:00`);
+      if (previous && Math.round((stamp - previous) / 86400000) === 1) {
+        runs[runs.length - 1].end = value;
+        runs[runs.length - 1].days += 1;
+      } else {
+        runs.push({ start: value, end: value, days: 1 });
+      }
+      previous = stamp;
+    });
+    return runs;
+  }
+
+  function buildTimelineGapMap(streams, report) {
+    const prepared = streams.map((stream, index) => ({
+      name: streamName(stream, index),
+      role: roleOf(stream.rows),
+      rows: stream.rows,
+    }));
+    const reportStreams = new Map();
+    ((report && report.streams) || []).forEach((stream) => reportStreams.set(stream.name, stream));
+    const rowsByDate = new Map();
+    const subjectsByDate = new Map();
+    const datesSeen = new Set();
+    prepared.forEach((stream) => {
+      const counts = {};
+      const subjects = {};
+      stream.rows.forEach((row) => {
+        const date = dayKey(row.timestamp);
+        if (!date) return;
+        counts[date] = (counts[date] || 0) + 1;
+        if (!subjects[date]) subjects[date] = new Set();
+        if (row[SUBJECT]) subjects[date].add(String(row[SUBJECT]));
+        datesSeen.add(date);
+      });
+      rowsByDate.set(stream.name, counts);
+      subjectsByDate.set(stream.name, subjects);
+    });
+    const sortedDates = [...datesSeen].sort();
+    if (!sortedDates.length) {
+      return {
+        mode: report ? report.mode : null,
+        alignment_known: false,
+        span: { start: null, end: null, days: 0, truncated: false },
+        streams: prepared.map((s) => ({ name: s.name, role: s.role })),
+        dates: [],
+        cells: [],
+        summary: { dates: 0, streams: prepared.length, cells: 0, cells_matched: 0, cells_partial: 0, cells_unmatched: 0, cells_missing: 0, missing_dates: 0, coverage_pct: 0, join_rate_pct: 0, per_stream: {}, gaps: [] },
+      };
+    }
+    const first = sortedDates[0];
+    const last = sortedDates[sortedDates.length - 1];
+    const fullSpan = isoDatesBetween(first, last);
+    const truncated = fullSpan.length > 1000;
+    const dates = truncated ? fullSpan.slice(-1000) : fullSpan;
+    const cells = [];
+    dates.forEach((date) => {
+      prepared.forEach((stream) => {
+        const counts = rowsByDate.get(stream.name) || {};
+        const rows = counts[date] || 0;
+        const info = (reportStreams.get(stream.name) || {}).by_date || {};
+        const dayInfo = info[date];
+        let status;
+        let matched;
+        if (rows === 0) { status = 'missing'; matched = 0; }
+        else if (!dayInfo) { status = 'present'; matched = null; }
+        else {
+          matched = Number(dayInfo.matched) || 0;
+          if (matched >= rows) status = 'matched';
+          else if (matched <= 0) status = 'unmatched';
+          else status = 'partial';
+        }
+        cells.push({
+          date,
+          stream: stream.name,
+          role: stream.role,
+          rows,
+          matched_rows: matched,
+          unmatched_rows: matched === null ? null : rows - matched,
+          status,
+          subjects: [...((subjectsByDate.get(stream.name) || {})[date] || [])].sort(),
+        });
+      });
+    });
+    const perStream = {};
+    prepared.forEach((stream) => {
+      const streamCells = cells.filter((cell) => cell.stream === stream.name);
+      const rowsTotal = streamCells.reduce((sum, cell) => sum + cell.rows, 0);
+      const matchedTotal = streamCells.reduce((sum, cell) => sum + (cell.matched_rows || 0), 0);
+      const missing = streamCells.filter((cell) => cell.status === 'missing').map((cell) => cell.date);
+      const gaps = dateRuns(missing);
+      perStream[stream.name] = {
+        role: stream.role,
+        dates_present: streamCells.filter((cell) => cell.rows > 0).length,
+        dates_missing: missing.length,
+        cells_matched: streamCells.filter((cell) => cell.status === 'matched').length,
+        cells_partial: streamCells.filter((cell) => cell.status === 'partial').length,
+        cells_unmatched: streamCells.filter((cell) => cell.status === 'unmatched').length,
+        cells_missing: missing.length,
+        rows: rowsTotal,
+        matched_rows: matchedTotal,
+        join_rate_pct: rowsTotal ? Math.round(matchedTotal / rowsTotal * 1000) / 10 : 0,
+        longest_gap_days: gaps.reduce((max, gap) => Math.max(max, gap.days), 0),
+        gaps,
+      };
+    });
+    const covered = cells.filter((cell) => cell.status === 'matched' || cell.status === 'partial').length;
+    const rowsTotal = Object.values(perStream).reduce((sum, entry) => sum + entry.rows, 0);
+    const matchedTotal = Object.values(perStream).reduce((sum, entry) => sum + entry.matched_rows, 0);
+    const summary = {
+      dates: dates.length,
+      streams: prepared.length,
+      cells: cells.length,
+      cells_matched: cells.filter((cell) => cell.status === 'matched').length,
+      cells_partial: cells.filter((cell) => cell.status === 'partial').length,
+      cells_unmatched: cells.filter((cell) => cell.status === 'unmatched').length,
+      cells_missing: cells.filter((cell) => cell.status === 'missing').length,
+      missing_dates: new Set(cells.filter((cell) => cell.status === 'missing').map((cell) => cell.date)).size,
+      coverage_pct: cells.length ? Math.round(covered / cells.length * 1000) / 10 : 0,
+      join_rate_pct: rowsTotal ? Math.round(matchedTotal / rowsTotal * 1000) / 10 : 0,
+      per_stream: perStream,
+      gaps: Object.values(perStream).flatMap((entry) => entry.gaps),
+    };
+    return {
+      generated_by: `heartmetric ${VERSION}-web`,
+      mode: report ? report.mode : null,
+      parameters: {
+        tolerance_minutes: report ? report.tolerance_minutes : null,
+        overnight_lookback_hours: report ? report.overnight_lookback_hours : null,
+        morning_window: report ? report.morning_window : null,
+        anchor: report ? report.anchor : null,
+        subject_column: SUBJECT,
+      },
+      alignment_known: Boolean(reportStreams.size),
+      span: { start: first, end: last, days: fullSpan.length, truncated },
+      streams: prepared.map((s) => ({ name: s.name, role: s.role })),
+      dates,
+      cells,
+      summary,
+      note: '관측이 없는 칸은 결측이며 보간·대체하지 않습니다. present는 행 수만 알고 그날의 결합 보고가 없는 상태입니다.',
     };
   }
 
@@ -1543,6 +2042,10 @@
     pearson: 'Pearson product-moment correlation · p from t = r√((n−2)/(1−r²))',
     spearman: 'Spearman rank correlation (average ranks, t approximation)',
     ols: 'Ordinary least squares · slope tested with t = b1/SE(b1)',
+    bh: 'Benjamini, Y. & Hochberg, Y. (1995). Controlling the false discovery rate. J. R. Stat. Soc. B 57(1):289–300',
+    holm: 'Holm, S. (1979). A simple sequentially rejective multiple test procedure. Scand. J. Stat. 6(2):65–70',
+    overnight: '야간 집계(03:00 배치)와 아침 커프를 잇는 결합 프리셋 — Oura API v2에 혈압 엔드포인트 없음',
+    gapmap: '일자×스트림 커버리지 감사 — 행 수와 결합 행, 결측일. 보간·이동·대체 없음',
     dipping: 'Ambulatory BP convention — normal 10–20 %, non-dipper 0–10 %, reverse < 0 %, extreme > 20 %',
   };
 
@@ -1570,6 +2073,10 @@
     { key: 'pearson_r', label: 'Pearson r', unit: '−1…1', kind: 'derived', formula: 'Σ(x−x̄)(y−ȳ) / √(Σ(x−x̄)²·Σ(y−ȳ)²)', boundary: '선형 관계만 봅니다. 자기상관이 있으면 p가 실제보다 작아집니다.' },
     { key: 'spearman_rho', label: 'Spearman ρ', unit: '−1…1', kind: 'derived', formula: '평균 순위의 Pearson 상관', boundary: '단조 관계를 봅니다. 동점이 많으면 압축됩니다.' },
     { key: 'ols_slope', label: '단순 선형회귀 기울기', unit: 'y per x', kind: 'derived', formula: 'b1 = Σ(x−x̄)(y−ȳ)/Σ(x−x̄)², b0 = ȳ − b1·x̄', boundary: '관측 범위 밖으로 외삽하지 않습니다. 공변량은 보정하지 않습니다.' },
+    { key: 'benjamini_hochberg', label: 'BH-FDR 보정 q-값', unit: 'q (0–1)', kind: 'derived', formula: 'q_(i) = min_{j≥i} m·p_(j)/j, 0–1 절단; q ≤ 0.05면 FDR 5% 유의', boundary: '같은 표의 지표 수 m이 기준입니다. 지표를 더하면 q가 바뀌므로 표에 없는 지표를 "검정 안 함"으로 읽지 마세요.' },
+    { key: 'holm_bonferroni', label: 'Holm–Bonferroni 보정 p', unit: 'p_holm (0–1)', kind: 'derived', formula: 'p_holm_(i) = max_{j≤i} min(1, (m−j+1)·p_(j)); ≤ 0.05면 FWER 5% 유의', boundary: 'BH보다 보수적입니다. 두 방법이 다른 결론을 내면 둘 다 보고하고 유리한 쪽만 고르지 않습니다.' },
+    { key: 'overnight_morning', label: '야간 → 아침 커프 결합', unit: 'n rows · lag min', kind: 'derived', formula: 'anchor = 05:00–12:00 커프, 동일 subject의 0 ≤ (anchor − 관측) ≤ 14시간 행을 가장 가까운 것부터 역할별 1개', boundary: '값을 옮기거나 보간하지 않습니다. 야간 집계는 03:00에 배치된 수면 평균이므로 lag을 함께 읽으세요.' },
+    { key: 'timeline_gap_map', label: '스트림 타임라인 갭 맵', unit: 'date × stream cell', kind: 'derived', formula: 'matched(전부 결합) · partial(일부) · unmatched(행은 있으나 미결합) · missing(그날 없음)', boundary: '관측이 없는 칸은 결측이며 메우지 않습니다. 스트림별 관측 기간 차이로 앞뒤가 결측으로 보이는 것은 정상입니다.' },
   ];
 
   /* ------------------------------------------------------------------ state */
@@ -1583,6 +2090,7 @@
     fileName: '—',
     files: [],
     alignment: null,
+    gapMap: null,
     groupA: 'forest',
     groupB: 'urban',
     paired: false,
@@ -1600,6 +2108,7 @@
     renderExposure();
     renderPreview();
     renderCharts();
+    renderGapMap();
     renderMethodology();
     const disabled = !state.rows.length;
     ['exportCsv', 'exportJson', 'exportMd'].forEach((id) => { const el = $(id); if (el) el.disabled = disabled; });
@@ -1652,9 +2161,14 @@
         <td>${stream.unmatched_rows}</td>
       </tr>`).join('');
     const warnings = (report.warnings || []).map((w) => `<p class="warn">${escapeHtml(w)}</p>`).join('');
+    const presetNote = report.mode === 'overnight_morning'
+      ? `<p class="muted">야간→아침 프리셋 · 아침 창 ${report.morning_window[0]}:00–${report.morning_window[1]}:00 · 직전 ${report.overnight_lookback_hours}시간 · `
+        + `lag 중앙값 ${report.lag_minutes.median ?? '—'}분 (n=${report.lag_minutes.n})`
+        + `${Object.keys(report.unmatched_reasons || {}).length ? ` · 미결합 사유 ${Object.entries(report.unmatched_reasons).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}</p>`
+      : '';
     box.innerHTML = `
       <div class="align-head">
-        <span class="align-badge">${report.mode === 'daily' ? '일별 집계' : `±${report.tolerance_minutes}분`}</span>
+        <span class="align-badge">${report.mode === 'daily' ? '일별 집계' : report.mode === 'overnight_morning' ? '야간→아침' : `±${report.tolerance_minutes}분`}</span>
         <span>앵커 <b>${label[report.anchor] || report.anchor}</b> · 매칭 <b>${report.anchors_matched}/${report.anchors}</b> (${report.match_rate_pct}%)</span>
         <span class="muted">행 ${report.rows_in} → ${report.rows_out}</span>
       </div>
@@ -1664,7 +2178,54 @@
           <tbody>${rows}</tbody>
         </table>
       </div>
+      ${presetNote}
       ${warnings}`;
+  }
+
+  const GAP_LABELS = {
+    matched: '매칭 — 모든 행 결합',
+    partial: '부분 — 일부 행만 결합',
+    unmatched: '미결합 — 행은 있으나 붙지 않음',
+    missing: '결측 — 그날 관측 없음',
+    present: '관측 있음 (결합 보고 없음)',
+  };
+
+  function renderGapMap() {
+    const box = $('gapGrid');
+    if (!box) return;
+    const scope = $('gapMapScope');
+    const summaryBox = $('gapSummary');
+    const gap = state.gapMap;
+    if (!gap || !gap.dates.length) {
+      box.innerHTML = '<p class="muted">파일을 2개 이상 결합하면 일자×스트림 갭 맵이 표시됩니다. 결측은 메우지 않고 그대로 보여줍니다.</p>';
+      if (scope) scope.textContent = '—';
+      if (summaryBox) summaryBox.innerHTML = '';
+      return;
+    }
+    const roleLabel = { bp: '혈압', wearable: '웨어러블', environment: '환경', other: '기타' };
+    const lookup = new Map(gap.cells.map((cell) => [`${cell.stream}||${cell.date}`, cell]));
+    const head = gap.dates.map((date) => `<th class="gap-date" title="${date}">${date.slice(5).replace('-', '.')}</th>`).join('');
+    const body = gap.streams.map((stream) => {
+      const cells = gap.dates.map((date) => {
+        const cell = lookup.get(`${stream.name}||${date}`) || { status: 'missing', rows: 0, subjects: [] };
+        const matched = cell.matched_rows === null || cell.matched_rows === undefined ? '—' : cell.matched_rows;
+        const tip = `${stream.name} · ${date} · ${GAP_LABELS[cell.status] || cell.status} · 행 ${cell.rows} · 결합 ${matched} · 피험자 ${(cell.subjects || []).join(', ') || '—'}`;
+        return `<td class="gap-cell gap-${cell.status}" title="${escapeHtml(tip)}">${cell.rows ? `<span>${cell.rows}</span>` : ''}</td>`;
+      }).join('');
+      return `<tr><th class="gap-rowhead"><span>${escapeHtml(stream.name)}</span><em>${roleLabel[stream.role] || stream.role}</em></th>${cells}</tr>`;
+    }).join('');
+    box.innerHTML = `<div class="table-scroll gap-scroll"><table class="gap-table">
+      <thead><tr><th class="gap-rowhead">스트림</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+    if (scope) {
+      scope.textContent = `${gap.summary.dates}일 × ${gap.summary.streams}스트림 · 커버리지 ${gap.summary.coverage_pct}%`;
+    }
+    if (summaryBox) {
+      const s = gap.summary;
+      const perStream = Object.entries(s.per_stream).map(([name, entry]) => `<li><b>${escapeHtml(name)}</b> — 결합률 ${entry.join_rate_pct}% · 결측 ${entry.dates_missing}일${entry.longest_gap_days ? ` (최장 ${entry.longest_gap_days}일 연속)` : ''}</li>`).join('');
+      summaryBox.innerHTML = `<div class="gap-summary-head">매칭 <b>${s.cells_matched}</b> · 부분 <b>${s.cells_partial}</b> · 미결합 <b>${s.cells_unmatched}</b> · 결측 <b>${s.cells_missing}</b> · 결합률 ${s.join_rate_pct}%</div><ul class="gap-streams">${perStream}</ul>`;
+    }
   }
 
   function renderQc() {
@@ -1760,19 +2321,19 @@
     const note = $('pairModeNote');
     const conditions = [...new Set(state.rows.map((r) => r.condition).filter(Boolean))];
     if (conditions.length < 2) {
-      tbody.innerHTML = '<tr><td colspan="9" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
       if (note) note.textContent = '조건 라벨이 두 개 이상 있어야 비교할 수 있습니다.';
       return;
     }
-    const metrics = ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn'];
+    const metrics = ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn', 'env_load'];
     const result = compareTable(state.rows, metrics, state.groupA, state.groupB, state.paired);
     const mode = result.mode;
     const pairedMode = mode === 'subject' || mode === 'row';
     head.innerHTML = pairedMode
-      ? `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d_z</th><th>효과</th><th>p</th><th>순열 p</th><th>95% CI</th></tr>`
-      : `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d</th><th>효과</th><th>p</th><th>95% CI</th></tr>`;
+      ? `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d_z</th><th>효과</th><th>p</th><th>q (BH)</th><th>p (Holm)</th><th>순열 p</th><th>95% CI</th></tr>`
+      : `<tr><th>지표</th><th>A 평균</th><th>B 평균</th><th>Δ (A−B)</th><th>%</th><th>Cohen's d</th><th>효과</th><th>p</th><th>q (BH)</th><th>p (Holm)</th><th>95% CI</th></tr>`;
     if (!result.rows.length) {
-      tbody.innerHTML = `<tr><td colspan="${pairedMode ? 10 : 9}" class="muted">선택한 조건에 측정값이 부족합니다.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${pairedMode ? 12 : 11}" class="muted">선택한 조건에 측정값이 부족합니다.</td></tr>`;
       return;
     }
     const first = result.rows[0];
@@ -1780,9 +2341,12 @@
     const testLabel = mode === 'subject' ? `대응표본 t-test (피험자 ${result.nSubjects}명)`
       : mode === 'row' ? '대응표본 t-test (시간순 짝짓기)'
         : 'Welch t-test (독립표본)';
+    const multiple = result.multiple || {};
     if (foot) {
       foot.textContent = `A = ${state.groupA} (n=${first.nA}) · B = ${state.groupB} (n=${first.nB}) · ${testLabel} · `
-        + '효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 다중비교 보정 전 값입니다.';
+        + '효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. '
+        + `p는 지표별 원값이고, 이 표의 ${multiple.family_size ?? result.rows.length}개 지표를 한 가족으로 본 q(BH-FDR)와 p(Holm)를 나란히 표시합니다 `
+        + `(BH 유의 ${multiple.rejected_bh_fdr ?? 0}건 · Holm 유의 ${multiple.rejected_holm_fw ?? 0}건, alpha 0.05).`;
     }
     if (note) {
       note.textContent = result.note || (mode === 'subject'
@@ -1804,6 +2368,8 @@
         <td>${fmt(dValue, 2)}</td>
         <td><span class="effect-tag ${dClass}">${row.effect}</span></td>
         <td>${fmtP(row.p)}</td>
+        <td class="${row.sigFDR ? 'fdr-sig' : ''}" title="Benjamini–Hochberg q (FDR 5%)">${fmtP(row.qBH)}${row.sigFDR ? ' *' : ''}</td>
+        <td class="${row.sigHolm ? 'fdr-sig' : ''}" title="Holm-adjusted p (family-wise 5%)">${fmtP(row.pHolm)}</td>
         ${pairedMode ? `<td>${fmtP(row.permP)}</td>` : ''}
         <td class="muted">${fmt(row.ciLow, 1)} … ${fmt(row.ciHigh, 1)}</td>
       </tr>`;
@@ -2150,6 +2716,7 @@
 
   function adoptLoaded(loaded, fileName) {
     state.alignment = null;
+    state.gapMap = null;
     adopt(loaded, fileName);
   }
 
@@ -2189,16 +2756,32 @@
       return;
     }
     try {
-      const daily = state.tolerance === 'daily';
-      const tolerance = daily ? 0 : Number(state.tolerance) || 0;
-      const aligned = alignStreams(
-        state.files.map((file) => ({ name: file.name, rows: file.loaded.rows })),
-        tolerance,
-        daily ? 'daily' : 'tolerance',
-      );
+      const choice = state.tolerance;
+      const streams = state.files.map((file) => ({ name: file.name, rows: file.loaded.rows }));
+      let aligned;
+      let modeLabel;
+      if (choice === 'daily') {
+        aligned = alignStreams(streams, 0, 'daily');
+        modeLabel = '일별로';
+      } else if (choice === 'overnight_morning') {
+        aligned = alignStreams(streams, 0, 'overnight_morning', {
+          overnightLookbackHours: OVERNIGHT_LOOKBACK_HOURS,
+          morningWindow: MORNING_WINDOW,
+        });
+        modeLabel = `야간(Oura)→아침 커프로 (직전 ${OVERNIGHT_LOOKBACK_HOURS}시간)`;
+      } else {
+        const tolerance = Number(choice) || 0;
+        aligned = alignStreams(streams, tolerance, 'tolerance');
+        modeLabel = `±${tolerance}분으로`;
+      }
+      if (!aligned || !aligned.report) return;
+      state.gapMap = buildTimelineGapMap(streams, aligned.report);
       const label = state.files.map((f) => f.name).join(' + ');
       adoptAligned(aligned, label);
-      toast(`스트림 ${state.files.length}개를 ${daily ? '일별로' : `±${tolerance}분으로`} 결합했습니다 · 매칭 ${aligned.report.match_rate_pct}%`);
+      renderGapMap();
+      const lag = aligned.report.lag_minutes;
+      const lagText = lag && lag.n ? ` · lag 중앙값 ${lag.median}분` : '';
+      toast(`스트림 ${state.files.length}개를 ${modeLabel} 결합했습니다 · 매칭 ${aligned.report.match_rate_pct}%${lagText}`);
     } catch (error) {
       console.error(error);
       toast(`결합하지 못했습니다: ${error.message}`);
@@ -2232,12 +2815,62 @@
     toast('코호트 데모 6인 · 3개 스트림을 ±30분으로 결합했습니다');
   }
 
+  function loadOvernightDemo() {
+    const rows = generateDemo(14, 123, '2026-05-06', 'S-01', false);
+    const minuteOf = (date) => date.getHours() * 60 + date.getMinutes();
+    const shift = (date, minutes) => new Date(date.getTime() + minutes * 60000);
+    const morningCuff = rows
+      .filter((row) => minuteOf(row.timestamp) === 430)
+      .map((row) => ({
+        timestamp: row.timestamp,
+        subject_id: row.subject_id,
+        condition: row.condition,
+        sbp: row.sbp,
+        dbp: row.dbp,
+      }));
+    const nightWearable = rows
+      .filter((row) => minuteOf(row.timestamp) === 180)
+      .map((row) => ({
+        timestamp: row.timestamp,
+        subject_id: row.subject_id,
+        hr: row.hr,
+        rmssd: row.rmssd,
+        sdnn: row.sdnn,
+      }));
+    // The environmental logger writes on its own clock: 7 minutes before the
+    // cuff, and five minutes before the evening label.
+    const environment = rows
+      .filter((row) => minuteOf(row.timestamp) === 430 || minuteOf(row.timestamp) === 1300)
+      .map((row) => ({
+        timestamp: shift(row.timestamp, minuteOf(row.timestamp) === 430 ? -7 : -5),
+        subject_id: row.subject_id,
+        temp_c: row.temp_c,
+        humidity_pct: row.humidity_pct,
+        pm25: row.pm25,
+        pm10: row.pm10,
+        green_index: row.green_index,
+        forest: row.forest,
+      }));
+    state.files = [
+      { name: 'morning_cuff.csv', loaded: { rows: morningCuff, mapping: { timestamp: 'timestamp', subject_id: 'subject_id', condition: 'condition', sbp: 'sbp', dbp: 'dbp' }, unmapped: [], warnings: [], source: 'synthetic' } },
+      { name: 'night_wearable.json', loaded: { rows: nightWearable, mapping: { timestamp: 'timestamp', subject_id: 'subject_id', hr: 'hr', rmssd: 'rmssd', sdnn: 'sdnn' }, unmapped: [], warnings: [], source: 'synthetic' } },
+      { name: 'morning_environment.csv', loaded: { rows: environment, mapping: { timestamp: 'timestamp', subject_id: 'subject_id', pm25: 'pm25', temp_c: 'temp_c', green_index: 'green_index' }, unmapped: [], warnings: [], source: 'synthetic' } },
+    ];
+    state.tolerance = 'overnight_morning';
+    const select = $('toleranceSelect');
+    if (select) select.value = 'overnight_morning';
+    renderFiles();
+    mergeStreams();
+    toast('야간 데모 14일 · 03:00 야간 집계와 07:10 아침 커프를 결합했습니다');
+  }
+
   function resetAnalysis() {
     state.rows = [];
     state.qc = null;
     state.mapping = {};
     state.warnings = [];
     state.alignment = null;
+    state.gapMap = null;
     state.fileName = '—';
     $('fileMeta').textContent = '아직 불러온 파일이 없습니다.';
     $('qcStatus').textContent = '대기';
@@ -2246,7 +2879,7 @@
     $('mapList').innerHTML = '<li class="muted">파일을 불러오면 매핑 결과가 표시됩니다.</li>';
     $('qcNotes').innerHTML = '<p class="muted">데모를 불러오면 세 가지 인위적 결함이 어떻게 처리되는지 볼 수 있습니다.</p>';
     ['qcRows', 'qcDays', 'qcCond', 'qcRemoved', 'qcGap', 'qcFlags', 'summaryScope', 'chartMeta'].forEach((id) => { $(id).textContent = '—'; });
-    $('compareTable').querySelector('tbody').innerHTML = '<tr><td colspan="9" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
+    $('compareTable').querySelector('tbody').innerHTML = '<tr><td colspan="11" class="muted">조건이 두 개 이상 있는 데이터를 불러오면 비교표가 채워집니다.</td></tr>';
     $('exposureTable').querySelector('tbody').innerHTML = '<tr><td colspan="7" class="muted">—</td></tr>';
     $('previewTable').querySelector('tbody').innerHTML = '<tr><td colspan="9" class="muted">—</td></tr>';
     $('exportCsv').disabled = true;
@@ -2264,6 +2897,7 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
     renderAlignment();
+    renderGapMap();
   }
 
   function reset() {
@@ -2289,7 +2923,7 @@
   function buildBundle() {
     const rows = state.rows;
     const stats = summarize(rows, state.hrvMetric);
-    const comparison = compareTable(rows, ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn'], state.groupA, state.groupB, state.paired);
+    const comparison = compareTable(rows, ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn', 'env_load'], state.groupA, state.groupB, state.paired);
     const exposure = conditionSummary(rows, ['pm25', 'pm10', 'temp_c', 'humidity_pct', 'green_index', 'forest']);
     const conditions = conditionSummary(rows, ['sbp', 'dbp', 'map', 'pp', 'hr', 'rmssd', 'sdnn', 'pm25', 'temp_c']);
     const correlations = correlationRows(rows);
@@ -2303,6 +2937,8 @@
         license: 'MIT · Copyright (c) 2026 FEI · HEL Lab, Gyeongsang National University',
         comparison: { a: state.groupA, b: state.groupB, paired: state.paired, paired_by: pairedBy, n_subjects: nSubjects, note: comparison.note || undefined },
         night_window: '22:00–06:00',
+        multiple_comparison: comparison.multiple,
+        timeline_gap_map: state.gapMap ? state.gapMap.summary : undefined,
         alignment: state.alignment || undefined,
         input: { file: state.fileName, source: state.source, streams: state.files.map((f) => f.name) },
         disclaimer: 'Research summary of the submitted series; not a medical diagnosis. The hardware boundary stands: a cuff measure is the only blood-pressure source and Oura reports no mmHg BP.',
@@ -2377,12 +3013,18 @@
         effect: row.effect,
         test: row.test,
         p_value: Number.isFinite(row.p) ? Number(row.p.toPrecision(4)) : null,
+        p_holm: Number.isFinite(row.pHolm) ? Number(row.pHolm.toPrecision(4)) : null,
+        q_value_bh: Number.isFinite(row.qBH) ? Number(row.qBH.toPrecision(4)) : null,
+        significant_fdr_05: Boolean(row.sigFDR),
+        significant_holm_05: Boolean(row.sigHolm),
         permutation_p: Number.isFinite(row.permP) ? Number(row.permP.toPrecision(4)) : null,
         sign_test_p: Number.isFinite(row.signP) ? Number(row.signP.toPrecision(4)) : null,
         ci_low: round(row.ciLow, 2),
         ci_high: round(row.ciHigh, 2),
       })),
       daily: dailyTable(rows),
+      multiple_comparison: comparison.multiple,
+      timeline_gap_map: state.gapMap || undefined,
       correlations: correlations.map((row) => ({
         x: row.x, y: row.y, n: row.n,
         pearson_r: round(row.r, 3),
@@ -2440,7 +3082,7 @@
     if (!state.rows.length) return;
     const bundle = buildBundle();
     download(`heartmetric_bundle_${fmtDate(new Date())}.json`, JSON.stringify(bundle, null, 2), 'application/json');
-    toast('분석 번들(JSON, schema 0.2.0)을 내려받았습니다');
+    toast('분석 번들(JSON, schema 0.3.0 · 갭 맵 · BH-FDR)을 내려받았습니다');
   }
 
   function mdCell(value, digits = 2) {
@@ -2473,6 +3115,12 @@
     const align = bundle.meta.alignment;
     if (align) {
       lines.push(`- 스트림 결합: ${align.mode} · 허용 오차 ${align.tolerance_minutes}분 · 앵커 매칭 ${align.anchors_matched}/${align.anchors} (${align.match_rate_pct}%)`);
+      if (align.mode === 'overnight_morning') {
+        const lag = align.lag_minutes || {};
+        lines.push(`  - 야간→아침 프리셋: 아침 창 ${align.morning_window ? `${align.morning_window[0]}:00–${align.morning_window[1]}:00` : '—'} · 되돌아보기 ${align.overnight_lookback_hours}시간 · lag 중앙값 ${lag.median}분 (n=${lag.n})`);
+        const reasons = Object.entries(align.unmatched_reasons || {});
+        if (reasons.length) lines.push(`  - 미결합 사유: ${reasons.map(([k, v]) => `${k} ${v}건`).join(', ')}`);
+      }
       align.streams.forEach((stream) => {
         lines.push(`  - ${stream.name} (${stream.role}): ${stream.matched_rows}/${stream.rows}행 결합`);
       });
@@ -2498,16 +3146,24 @@
     lines.push('');
     const paired = meta.comparison.paired_by === 'subject' || meta.comparison.paired_by === 'row';
     lines.push(paired
-      ? '| metric | n | mean_a | mean_b | diff | cohens_dz | effect | p | permutation_p | ci_low | ci_high |'
-      : '| metric | n | mean_a | mean_b | diff | cohens_d | effect | p | ci_low | ci_high |');
-    lines.push(paired ? '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+      ? '| metric | n | mean_a | mean_b | diff | cohens_dz | effect | p | q_bh | p_holm | permutation_p | ci_low | ci_high |'
+      : '| metric | n | mean_a | mean_b | diff | cohens_d | effect | p | q_bh | p_holm | ci_low | ci_high |');
+    lines.push(paired
+      ? '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+      : '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     bundle.comparison.forEach((row) => {
+      const adjusted = `${row.q_value_bh == null ? '—' : row.q_value_bh} | ${row.p_holm == null ? '—' : row.p_holm}`;
       lines.push(paired
-        ? `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_dz, 2)} | ${row.effect} | ${row.p_value} | ${row.permutation_p == null ? '—' : row.permutation_p} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`
-        : `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_d, 2)} | ${row.effect} | ${row.p_value} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`);
+        ? `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_dz, 2)} | ${row.effect} | ${row.p_value} | ${adjusted} | ${row.permutation_p == null ? '—' : row.permutation_p} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`
+        : `| ${row.metric} | ${row.n_a} | ${mdCell(row.mean_a, 2)} | ${mdCell(row.mean_b, 2)} | ${mdCell(row.diff, 2)} | ${mdCell(row.cohens_d, 2)} | ${row.effect} | ${row.p_value} | ${adjusted} | ${mdCell(row.ci_low, 2)} | ${mdCell(row.ci_high, 2)} |`);
     });
     lines.push('');
-    lines.push('효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 다중비교 보정 전 값입니다. 대응표본에서는 d_z를 읽으세요.');
+    lines.push('효과크기: |d| < 0.2 무시 · 0.2–0.5 작음 · 0.5–0.8 중간 · ≥ 0.8 큼. p는 지표별 원값이고, 같은 표의 지표를 한 가족으로 본 **BH-FDR q**와 **Holm 보정 p**를 나란히 표시합니다(Benjamini & Hochberg 1995; Holm 1979). 대응표본에서는 d_z를 읽으세요.');
+    const mc = bundle.multiple_comparison || {};
+    if (mc.family_size) {
+      lines.push('');
+      lines.push(`다중 비교: 가족 크기 m = ${mc.family_size} · alpha ${mc.alpha} · BH-FDR 유의 ${mc.rejected_bh_fdr}건 · Holm 유의 ${mc.rejected_holm_fw}건`);
+    }
     lines.push('');
     lines.push('## 4. 환경 노출 × 심혈관 상관');
     lines.push('');
@@ -2519,7 +3175,25 @@
     lines.push('');
     lines.push('r은 선형, ρ는 단조 관계입니다. 기울기는 OLS 추정치이며 관측 범위 밖으로 외삽하지 않습니다. 상관은 인과가 아닙니다.');
     lines.push('');
-    lines.push('## 5. 조건별 평균');
+    lines.push('## 5. 스트림 타임라인 갭 맵');
+    lines.push('');
+    const gap = bundle.timeline_gap_map;
+    if (gap && gap.summary && gap.summary.cells) {
+      const gs = gap.summary;
+      lines.push(`${gs.dates}일 × ${gs.streams}개 스트림 · 매칭 ${gs.cells_matched} · 부분 ${gs.cells_partial} · 미결합 ${gs.cells_unmatched} · 결측 ${gs.cells_missing} (커버리지 ${gs.coverage_pct}%)`);
+      lines.push('');
+      lines.push('| 스트림 | 역할 | 관측일 | 결측일 | 결합 | 미결합 | 결측 | 최장 연속 결측 | 결합률 |');
+      lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+      Object.entries(gs.per_stream).forEach(([name, entry]) => {
+        lines.push(`| ${name} | ${entry.role} | ${entry.dates_present} | ${entry.dates_missing} | ${entry.cells_matched} | ${entry.cells_unmatched} | ${entry.cells_missing} | ${entry.longest_gap_days}일 | ${entry.join_rate_pct}% |`);
+      });
+      lines.push('');
+      lines.push('관측이 없는 칸은 **결측**이며 보간·대체하지 않습니다. 스트림마다 관측 기간이 달라 앞뒤 날짜가 결측으로 보이는 것은 그 날 그 스트림이 없었다는 뜻입니다.');
+    } else {
+      lines.push('_스트림을 2개 이상 결합하면 일자×스트림 갭 맵이 만들어집니다._');
+    }
+    lines.push('');
+    lines.push('## 6. 조건별 평균');
     lines.push('');
     lines.push('| 조건 | n | SBP | DBP | HR | RMSSD | PM2.5 |');
     lines.push('| --- | --- | --- | --- | --- | --- | --- |');
@@ -2527,7 +3201,7 @@
       lines.push(`| ${row.condition} | ${row.n} | ${mdCell(row.sbp, 1)} | ${mdCell(row.dbp, 1)} | ${mdCell(row.hr, 1)} | ${mdCell(row.rmssd, 1)} | ${mdCell(row.pm25, 1)} |`);
     });
     lines.push('');
-    lines.push('## 6. 지표 정의와 경계');
+    lines.push('## 7. 지표 정의와 경계');
     lines.push('');
     lines.push('| 지표 | 구분 | 수식 | 경계 |');
     lines.push('| --- | --- | --- | --- |');
@@ -2573,6 +3247,7 @@
 
     $('demoBtn').addEventListener('click', loadDemo);
     $('cohortBtn').addEventListener('click', loadCohortDemo);
+    $('nightBtn').addEventListener('click', loadOvernightDemo);
     $('resetBtn').addEventListener('click', reset);
     $('clearFilesBtn').addEventListener('click', () => { state.files = []; renderFiles(); resetAnalysis(); });
     $('mergeBtn').addEventListener('click', mergeStreams);
@@ -2623,11 +3298,15 @@
     loadText,
     cleanRows,
     alignStreams,
+    buildTimelineGapMap,
     roleOf,
     compareTable,
+    benjaminiHochberg,
+    holmBonferroni,
     correlationRow,
     generateDemo,
     generateCohort,
+    loadOvernightDemo,
     buildBundle,
     markdownReport,
   };
